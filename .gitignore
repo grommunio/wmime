@@ -18,7 +18,7 @@ cmake_install.cmake
 /Makefile
 /install_manifest*
 /libvmime.a
-/vmime.pc
+/*.pc
 /src/vmime/config.hpp
 /src/vmime/export-static.hpp
 /src/vmime/export-shared.hpp

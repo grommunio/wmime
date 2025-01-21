@@ -6,6 +6,9 @@ With VMime you can parse, generate and modify messages, and also connect to stor
 and transport services to receive or send messages over the Internet. The library
 offers all the features to build a complete mail client.
 
+wmime is a descendant project for the purpose of release targets
+and is drop-in compatible with vmime.
+
 Key Features
 ------------
 

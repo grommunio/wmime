@@ -1,0 +1,4 @@
+Name: wmime
+Description: @VMIME_PACKAGE_DESCRIPTION@
+Version: @VMIME_PACKAGE_VERSION@
+Requires: vmime

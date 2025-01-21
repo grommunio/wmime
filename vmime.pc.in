@@ -3,9 +3,9 @@ exec_prefix=@exec_prefix@
 libdir=@libdir@
 includedir=@includedir@
 
-Name: @VMIME_PACKAGE_NAME@
+Name: vmime
 Description: @VMIME_PACKAGE_DESCRIPTION@
-Version: @VMIME_PACKAGE_VERSION@
+Version: 0.9.2
 Requires.private: @VMIME_PKGCONFIG_REQUIRES@
 Libs: -L${libdir} -l@VMIME_LIBRARY_NAME@
 Libs.private: @VMIME_PKGCONFIG_LIBS@
