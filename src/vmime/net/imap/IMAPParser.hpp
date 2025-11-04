@@ -956,7 +956,6 @@ public:
 		bool parseImpl(IMAPParser& parser, string& line, size_t* currentPos) {
 
 			size_t pos = *currentPos;
-			size_t len = 0;
 			bool valid = false;
 
 			value.reserve(line.length() - pos);
@@ -977,7 +976,6 @@ public:
 					quoted = false;
 
 					++pos;
-					++len;
 
 				} else {
 
@@ -986,7 +984,6 @@ public:
 						quoted = true;
 
 						++pos;
-						++len;
 
 					} else if (c == '"') {
 
@@ -999,7 +996,6 @@ public:
 						value += c;
 
 						++pos;
-						++len;
 
 					} else {
 
@@ -3712,7 +3708,7 @@ public:
 
 			VIMAP_PARSER_CHECK(one_char <'('> );
 
-			items.push_back(std::move(std::unique_ptr <msg_att_item>(parser.get <msg_att_item>(line, &pos))));
+			items.push_back(std::unique_ptr <msg_att_item>(parser.get <msg_att_item>(line, &pos)));
 
 			while (!VIMAP_PARSER_TRY_CHECK(one_char <')'> )) {
 				VIMAP_PARSER_CHECK(SPACE);
@@ -4501,9 +4497,7 @@ public:
 			while ((resp = parser.get <IMAPParser::continue_req_or_response_data>(curLine, &pos))) {
 
 				continue_req_or_response_data.push_back(
-					std::move(
-						std::unique_ptr <IMAPParser::continue_req_or_response_data>(resp)
-					)
+					std::unique_ptr <IMAPParser::continue_req_or_response_data>(resp)
 				);
 
 				// Partial response (continue_req)
