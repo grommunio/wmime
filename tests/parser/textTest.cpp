@@ -440,7 +440,7 @@ VMIME_TEST_SUITE_BEGIN(textTest)
 
 		VASSERT_EQ(
 			"2",
-			"=?utf-8?Q?aaa=C3=A9?==?utf-8?Q?zzz?=",
+			"=?utf-8?Q?aaa?==?utf-8?Q?=C3=A9?==?utf-8?Q?zzz?=",
 			cleanGeneratedWords(
 				vmime::word("aaa\xc3\xa9zzz", vmime::charset("utf-8")).generate(17)
 			)
