@@ -470,6 +470,8 @@ void word::generate(
 		os << '"' << quoted << '"';
 		curLineLength += 1 + quoted.length() + 1;
 
+		state->prevWordIsEncoded = false;
+
 	// If possible and requested (with flag), quote the buffer (no folding is performed).
 	// Quoting is possible if and only if:
 	//  - the buffer does not need to be encoded
@@ -482,6 +484,8 @@ void word::generate(
 
 		os << '"' << m_buffer << '"';
 		curLineLength += 2 + m_buffer.length();
+
+		state->prevWordIsEncoded = false;
 
 	// We will fold lines without encoding them.
 	} else if (!encodingNeeded) {
@@ -677,6 +681,8 @@ void word::generate(
 				newLine = true;
 			}
 		}
+
+		state->prevWordIsEncoded = false;
 
 	/*
 		RFC #2047:
