@@ -546,6 +546,17 @@ void word::generate(
 			return;
 		}
 
+		// Separate from previous word, unless the text starts with white-space
+		bool sepPending =
+			!state->isFirstWord &&
+			(state->prevWordIsEncoded || ctx.getInternationalizedEmailSupport()) &&
+			!state->lastCharIsSpace &&
+			!buffer.empty() && !parserHelpers::isSpace(buffer[0]);
+
+		if (sepPending) {
+			++curLineLength;
+		}
+
 		// Output runs, and fold line when a whitespace is encountered
 		string::const_iterator lastWSpos = buffer.end(); // last white-space position
 		string::const_iterator curLineStart = buffer.begin(); // current line start
@@ -606,15 +617,13 @@ void word::generate(
 					p = curLineStart;
 					lastWSpos = end;
 					newLine = true;
+					sepPending = false;
 
 				} else {
 
-					if (!state->isFirstWord &&
-					    (state->prevWordIsEncoded || ctx.getInternationalizedEmailSupport()) &&
-					    !state->lastCharIsSpace &&
-					    !parserHelpers::isSpace(*curLineStart)) {
-
+					if (sepPending) {
 						os << " "; // Separate from previous word
+						sepPending = false;
 					}
 
 					os << string(curLineStart, p);
@@ -654,11 +663,9 @@ void word::generate(
 				// characters _after_ the last white-space; so we cut the line at this
 				// last white-space.
 
-				if (curLineLength != NEW_LINE_SEQUENCE_LENGTH &&
-				    !state->isFirstWord &&
-				    state->prevWordIsEncoded) {
-
+				if (sepPending) {
 					os << " "; // Separate from previous word
+					sepPending = false;
 				}
 
 				os << string(curLineStart, lastWSpos);
