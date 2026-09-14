@@ -33,6 +33,7 @@ VMIME_TEST_SUITE_BEGIN(mailboxTest)
 		VMIME_TEST(testMalformations)
 		VMIME_TEST(testExcessiveQuoting)
 		VMIME_TEST(testSpacing)
+		VMIME_TEST(testQuotedNameSpecials)
 	VMIME_TEST_LIST_END
 
 
@@ -192,6 +193,24 @@ VMIME_TEST_SUITE_BEGIN(mailboxTest)
 		VASSERT_EQ("1", "Foo =?utf-8?Q?B=C3=A4renstark?= Baz", t.generate());
 		VASSERT_EQ("2", "=?us-ascii?Q?Foo?= =?utf-8?Q?_B=C3=A4renstark?= =?us-ascii?Q?_Baz?= <a@b.de>", m.generate());
 
+	}
+
+	void testQuotedNameSpecials() {
+
+		using namespace vmime;
+
+		// '"' and '\' are escaped inside the quoted-string
+		mailbox m1(text("Meier, Hans \"Hansi\"", charsets::UTF_8), emailAddress("x@example.com"));
+		VASSERT_EQ("1", "\"Meier, Hans \\\"Hansi\\\"\" <x@example.com>", m1.generate());
+
+		mailbox m2(text("IT \\ Support", charsets::UTF_8), emailAddress("x@example.com"));
+		VASSERT_EQ("2", "\"IT \\\\ Support\" <x@example.com>", m2.generate());
+
+		mailbox back;
+		back.parse(m1.generate());
+		VASSERT_EQ("3", "Meier, Hans \"Hansi\"", back.getName().getWholeBuffer());
+		back.parse(m2.generate());
+		VASSERT_EQ("4", "IT \\ Support", back.getName().getWholeBuffer());
 	}
 
 	void testAPI() {
