@@ -55,6 +55,8 @@ VMIME_TEST_SUITE_BEGIN(textTest)
 		VMIME_TEST(testWhitespaceAroundFold)
 
 		VMIME_TEST(testFoldingAscii)
+		VMIME_TEST(testFoldPoints)
+		VMIME_TEST(testFoldWhitespaceRuns)
 		VMIME_TEST(testForcedNonEncoding)
 
 		VMIME_TEST(testBugFix20110511)
@@ -701,6 +703,127 @@ VMIME_TEST_SUITE_BEGIN(textTest)
 			" =?us-ascii?Q?5678901234567890123456789012345678?=\r\n"
 			" =?us-ascii?Q?9012345678901234567890123456789?=", w.generate(50)
 		);
+	}
+
+	void testFoldPoints() {
+
+		// No fold after '\' or inside a white-space run
+		const std::string in =
+			"Copy C:\\ Temp  and  D:\\ Data   to the backup share on the file server,"
+			" then check the logs";
+
+		for (size_t col = 0 ; col < 78 ; ++col) {
+
+			const std::string out = vmime::text(in, vmime::charsets::UTF_8).generate(78, col);
+
+			VASSERT(out, out.find("\\\r\n") == std::string::npos);
+			VASSERT(out, out.find(" \r\n") == std::string::npos);
+			VASSERT(out, out.find("\r\n  ") == std::string::npos);
+
+			vmime::text back;
+			back.parse(out);
+			VASSERT_EQ(out, in, back.getWholeBuffer());
+		}
+
+		// Neither before the next word
+		vmime::text t;
+		t.appendWord(vmime::make_shared <vmime::word>("Copy C:\\", vmime::charset("us-ascii")));
+		t.appendWord(vmime::make_shared <vmime::word>(" Temp to the backup share", vmime::charset("us-ascii")));
+
+		for (size_t col = 0 ; col < 78 ; ++col) {
+
+			const std::string out = t.generate(78, col);
+
+			VASSERT(out, out.find("\\\r\n") == std::string::npos);
+		}
+
+		// Nor before an encoded-word
+		vmime::generationContext ctx;
+		ctx.setMaxLineLength(998);
+
+		std::string out;
+		vmime::utility::outputStreamStringAdapter os(out);
+
+		vmime::text("Share \\\\server\\ \xc3\xa4nderungen", vmime::charsets::UTF_8)
+			.encodeAndFold(ctx, os, 38, NULL, 0);
+
+		VASSERT_EQ(
+			"encoded",
+			"Share \\\\server\\ =?utf-8?Q?=C3=A4nder?=\r\n =?utf-8?Q?ungen?=",
+			out
+		);
+	}
+
+	void testFoldWhitespaceRuns() {
+
+		// Without a single space, fold before the last space of a run
+		VASSERT_EQ(
+			"1",
+			"Invoice  12345  from  ACME  Corp  due  2026-09-30  please  pay \r\n"
+			" promptly  thanks  a lot",
+			vmime::text(
+				"Invoice  12345  from  ACME  Corp  due  2026-09-30  please  pay"
+				"  promptly  thanks  a lot", vmime::charset("us-ascii")
+			).generate(78, 9)
+		);
+
+		// A first word which does not fit on the line is encoded
+		VASSERT_EQ(
+			"2",
+			"=?us-ascii?Q?Col1=09Col2=09Col3=09Col4=09Col5=09Col6=09Col7=09Col?=\r\n"
+			" =?us-ascii?Q?8=09Col9=09Col10=09Col11=09Col12=09Col13=09Col14?=",
+			vmime::text(
+				"Col1\tCol2\tCol3\tCol4\tCol5\tCol6\tCol7\tCol8\tCol9\tCol10"
+				"\tCol11\tCol12\tCol13\tCol14", vmime::charset("us-ascii")
+			).generate(78, 9)
+		);
+
+		// Unencoded, fold before a tab only to stay within 998 chars
+		std::string spaces = "tok", tabs = "tok";
+
+		for (int i = 1 ; spaces.length() < 1200 ; ++i) {
+
+			spaces += "  tok" + std::to_string(i);
+			tabs += "\ttok" + std::to_string(i);
+		}
+
+		const std::string ins[] = { spaces, tabs };
+		const size_t maxLens[] = { 78, 998 };
+
+		for (int i = 0 ; i < 2 ; ++i) {
+
+			vmime::generationContext ctx;
+			ctx.setMaxLineLength(78);
+
+			std::string out;
+			vmime::utility::outputStreamStringAdapter os(out);
+
+			vmime::text(ins[i], vmime::charset("us-ascii"))
+				.encodeAndFold(ctx, os, 10, NULL, vmime::text::FORCE_NO_ENCODING);
+
+			std::string unfolded;
+			size_t lineLength = 10;
+
+			for (size_t j = 0 ; j < out.length() ; ++j) {
+
+				if (out[j] == '\r' && out[j + 1] == '\n') {
+
+					VASSERT(out, lineLength <= maxLens[i]);
+					VASSERT(out, out.compare(j + 2, 2, "  ") != 0);
+
+					lineLength = 0;
+					++j;
+
+				} else {
+
+					unfolded += out[j];
+					++lineLength;
+				}
+			}
+
+			VASSERT(out, lineLength <= maxLens[i]);
+			VASSERT_EQ("unfolded", ins[i], unfolded);
+		}
 	}
 
 	void testForcedNonEncoding() {
