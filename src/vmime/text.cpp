@@ -30,6 +30,10 @@
 namespace vmime {
 
 
+// Private flag for word::generate(): the previous word ended with '\'
+static const int PREV_ENDS_WITH_BACKSLASH = (1 << 24);
+
+
 text::text() {
 
 }
@@ -343,13 +347,26 @@ void text::encodeAndFold(
 
 	size_t curLineLength = firstLineOffset;
 	word::generatorState state;
+	int wordFlags = flags;
 
 	for (size_t wi = 0 ; wi < getWordCount() ; ++wi) {
 
+		const string& buffer = getWordAt(wi)->getBuffer();
+
 		getWordAt(wi)->generate(
 			ctx, os, curLineLength,
-			&curLineLength, flags, &state
+			&curLineLength, wordFlags, &state
 		);
+
+		// Tell the next word not to fold after a '\'
+		if (!buffer.empty()) {
+
+			wordFlags = flags;
+
+			if (!state.prevWordIsEncoded && buffer[buffer.length() - 1] == '\\') {
+				wordFlags |= PREV_ENDS_WITH_BACKSLASH;
+			}
+		}
 	}
 
 	if (lastLineLength) {

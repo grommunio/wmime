@@ -22,6 +22,7 @@
 //
 
 #include "vmime/emailAddress.hpp"
+#include "vmime/wordEncoder.hpp"
 
 #include "vmime/platform.hpp"
 
@@ -587,9 +588,31 @@ void emailAddress::generateImpl(
 
 	} else {
 
-		// Local part
+		// Local part. It may not be folded, nor contain an encoded-word
+		// (RFC 2047 section 5), unless it cannot be written otherwise.
 		vmime::utility::outputStreamStringAdapter os(localPart);
-		m_localName.generate(ctx, os, 0, NULL, text::QUOTE_IF_NEEDED, NULL);
+		const string& buffer = m_localName.getBuffer();
+
+		if (utility::stringUtils::is7bit(buffer) &&
+		    buffer.find_first_of("\r\n") == string::npos) {
+
+			generationContext localCtx(ctx);
+			localCtx.setMaxLineLength(lineLengthLimits::infinite);
+
+			m_localName.generate(localCtx, os, 0, NULL,
+				text::FORCE_NO_ENCODING | text::QUOTE_IF_NEEDED, NULL);
+
+		} else {
+
+			wordEncoder enc(buffer, m_localName.getCharset());
+			const string lang = m_localName.getLanguage();
+
+			os << "=?" << m_localName.getCharset().getName()
+			   << (lang.empty() ? "" : "*" + lang)
+			   << (enc.getEncoding() == wordEncoder::ENCODING_B64 ? "?B?" : "?Q?")
+			   << enc.getNextChunk(lineLengthLimits::infinite)
+			   << "?=";
+		}
 
 		// Domain part as IDNA
 		domainPart = domainNameToIDNA(m_domainName.getConvertedText(vmime::charsets::UTF_8));
