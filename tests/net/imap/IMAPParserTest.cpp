@@ -41,6 +41,9 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 		VMIME_TEST(testUnquotedMailboxName)
 		VMIME_TEST(testInvalidCharsInAstring)
 		VMIME_TEST(testExtraSpaceInSEARCHResponse)
+		VMIME_TEST(test8BitCharsInQuotedString)
+		VMIME_TEST(testIDResponse)
+		VMIME_TEST(testIDResponse_NIL)
 	VMIME_TEST_LIST_END
 
 
@@ -540,6 +543,148 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			VASSERT_EQ("mbox search 2", 2, resp->continue_req_or_response_data[0]->response_data->mailbox_data->search_nz_number_list[1]->value);
 			VASSERT_EQ("mbox search 3", 3, resp->continue_req_or_response_data[0]->response_data->mailbox_data->search_nz_number_list[2]->value);
 			VASSERT_EQ("mbox search 4", 4, resp->continue_req_or_response_data[0]->response_data->mailbox_data->search_nz_number_list[3]->value);
+		}
+	}
+
+
+	// Some IMAP servers send raw 8-bit (eg. UTF-8) characters in quoted strings,
+	// for example in ENVELOPE subject (issue #317)
+	void test8BitCharsInQuotedString() {
+
+		const char* respText =
+			"* 5882 FETCH (FLAGS (\\Seen) UID 24371 ENVELOPE (\"Mon, 02 Dec 2024 11:11:51 +0000\" "
+			"\"Kun For Deg! F\xc3\xa5 Et GRATIS Bil N\xc3\xb8" "dssett Fra NAF!\" "
+			"((\"=?UTF-8?Q?Eksklusiv=20NAF?=\" NIL \"marketing\" \"mail.iex.nl\")) "
+			"((\"=?UTF-8?Q?Eksklusiv=20NAF?=\" NIL \"marketing\" \"mail.iex.nl\")) "
+			"((\"=?UTF-8?Q?Eksklusiv=20NAF?=\" NIL \"marketing\" \"mail.iex.nl\")) "
+			"((NIL NIL \"xxxxxxx\" \"online.no\")) NIL NIL NIL "
+			"\"<202412021111.4B2BBp0G115507@mail119c60.megamailservers.eu>\"))\r\n"
+			"a001 OK FETCH complete\r\n";
+
+		// Strict mode
+		{
+			auto socket = vmime::make_shared <testSocket>();
+			auto toh = vmime::make_shared <testTimeoutHandler>();
+
+			auto tag = vmime::make_shared <vmime::net::imap::IMAPTag>();
+
+			socket->localSend(respText);
+
+			auto parser = vmime::make_shared <vmime::net::imap::IMAPParser>();
+
+			parser->setSocket(socket);
+			parser->setTimeoutHandler(toh);
+			parser->setStrict(true);
+
+			VASSERT_THROW("strict mode", parser->readResponse(*tag), vmime::exceptions::invalid_response);
+		}
+
+		// Non-strict mode
+		{
+			auto socket = vmime::make_shared <testSocket>();
+			auto toh = vmime::make_shared <testTimeoutHandler>();
+
+			auto tag = vmime::make_shared <vmime::net::imap::IMAPTag>();
+
+			socket->localSend(respText);
+
+			auto parser = vmime::make_shared <vmime::net::imap::IMAPParser>();
+
+			parser->setSocket(socket);
+			parser->setTimeoutHandler(toh);
+			parser->setStrict(false);
+
+			std::unique_ptr <vmime::net::imap::IMAPParser::response> resp;
+
+			VASSERT_NO_THROW("non-strict mode", resp.reset(parser->readResponse(*tag)));
+
+			VASSERT_EQ("resp size", 1, resp->continue_req_or_response_data.size());
+			VASSERT("resp data", resp->continue_req_or_response_data[0]->response_data);
+			VASSERT("msg data", resp->continue_req_or_response_data[0]->response_data->message_data);
+
+			const auto& items = resp->continue_req_or_response_data[0]->response_data->message_data->msg_att->items;
+
+			VASSERT_EQ("items size", 3, items.size());
+			VASSERT("envelope", items[2]->envelope);
+			VASSERT_EQ(
+				"subject",
+				"Kun For Deg! F\xc3\xa5 Et GRATIS Bil N\xc3\xb8" "dssett Fra NAF!",
+				items[2]->envelope->env_subject->value
+			);
+		}
+	}
+
+	// ID extension (RFC 2971)
+	void testIDResponse() {
+
+		const char* respText =
+			"* ID (\"name\" \"Cyrus\" \"version\" \"1.5\" \"os\" \"sunos\" "
+			"\"os-version\" \"5.5\" \"support-url\" \"mailto:cyrus-bugs+@andrew.cmu.edu\" "
+			"\"vendor\" NIL)\r\n"
+			"a001 OK ID completed\r\n";
+
+		auto socket = vmime::make_shared <testSocket>();
+		auto toh = vmime::make_shared <testTimeoutHandler>();
+
+		auto tag = vmime::make_shared <vmime::net::imap::IMAPTag>();
+
+		socket->localSend(respText);
+
+		auto parser = vmime::make_shared <vmime::net::imap::IMAPParser>();
+
+		parser->setSocket(socket);
+		parser->setTimeoutHandler(toh);
+		parser->setStrict(true);
+
+		std::unique_ptr <vmime::net::imap::IMAPParser::response> resp;
+
+		VASSERT_NO_THROW("parse", resp.reset(parser->readResponse(*tag)));
+
+		VASSERT_EQ("resp size", 1, resp->continue_req_or_response_data.size());
+		VASSERT("resp data", resp->continue_req_or_response_data[0]->response_data);
+		VASSERT("id response", resp->continue_req_or_response_data[0]->response_data->id_response);
+
+		const auto& params = resp->continue_req_or_response_data[0]->response_data->id_response->params;
+
+		VASSERT_EQ("params size", 6, params.size());
+		VASSERT_EQ("field 1", "name", params[0]->field->value);
+		VASSERT_EQ("value 1", "Cyrus", params[0]->value->value);
+		VASSERT_EQ("field 5", "support-url", params[4]->field->value);
+		VASSERT_EQ("value 5", "mailto:cyrus-bugs+@andrew.cmu.edu", params[4]->value->value);
+		VASSERT_EQ("field 6", "vendor", params[5]->field->value);
+		VASSERT_TRUE("value 6", params[5]->value->isNIL);
+	}
+
+	void testIDResponse_NIL() {
+
+		const char* respTexts[] = {
+			"* ID NIL\r\na001 OK ID completed\r\n",
+			"* ID ()\r\na001 OK ID completed\r\n"
+		};
+
+		for (const char* respText : respTexts) {
+
+			auto socket = vmime::make_shared <testSocket>();
+			auto toh = vmime::make_shared <testTimeoutHandler>();
+
+			auto tag = vmime::make_shared <vmime::net::imap::IMAPTag>();
+
+			socket->localSend(respText);
+
+			auto parser = vmime::make_shared <vmime::net::imap::IMAPParser>();
+
+			parser->setSocket(socket);
+			parser->setTimeoutHandler(toh);
+			parser->setStrict(true);
+
+			std::unique_ptr <vmime::net::imap::IMAPParser::response> resp;
+
+			VASSERT_NO_THROW("parse", resp.reset(parser->readResponse(*tag)));
+
+			VASSERT_EQ("resp size", 1, resp->continue_req_or_response_data.size());
+			VASSERT("resp data", resp->continue_req_or_response_data[0]->response_data);
+			VASSERT("id response", resp->continue_req_or_response_data[0]->response_data->id_response);
+			VASSERT_EQ("params size", 0, resp->continue_req_or_response_data[0]->response_data->id_response->params.size());
 		}
 	}
 
