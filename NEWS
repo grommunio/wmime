@@ -1,0 +1,38 @@
+wmime 1.2.0 (2026-10-27)
+========================
+
+* Removed extraneous `const` qualifiers on return types that prevented
+  feeding generate() return values to another function as movable rvalues.
+* Over-encoding ASCII words in RFC 6532 mode is avoided.
+* The Date: line parser is now in line with RFC 5322, abolishing
+  recognition for single-letter time zones previously availablein RFC 822.
+* Added support for IMAP ID extension.
+* Added support for Cygwin.
+* Header folding is now in accordance with RFC 5322/2047.
+* In e.g. To: address lists, '(' and '<' were erroneously parsed as comment and
+  start of address even when they appeared in a quoted display name, which has
+  been fixed.
+
+
+wmime 1.1.0 (2025-07-21)
+========================
+
+* Original MIME boundary are now preserved when parsing and regenerating
+  messages.
+* Made generateRandomBytes() not produce undefined bytes.
+
+
+wmime 1.0.0
+===========
+
+* Improved address parser for malformed mailbox specifications.
+* Whitespace between leading boundary hyphens and marker is now ignored.
+* Display names that are representable as-is are no longer forcibly
+  qp/b64-encoded.
+* When sending over sendmail:// transport, the MAIL FROM envelope
+  address is no longer emitted as zero-length garbage.
+* Added support for IPv6 literals to vmime::url.
+* Cured bad outcomes from `wordEncoder::guessBestEncoding` for input
+  longer than 42.94 MB.
+* Added/updated support for FreeBSD libc++ and Solaris systems.
+* Space characters are no longer lost during text::createFromString.
