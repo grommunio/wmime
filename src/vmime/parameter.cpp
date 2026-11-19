@@ -490,12 +490,13 @@ void parameter::generateImpl(
 			pos = NEW_LINE_SEQUENCE_LENGTH;
 		}
 
-		// Split text into multiple sections that fit on one line
+		// Split text into multiple sections that fit on one line;
+		// the first section starts at the current position
 		int sectionCount = 0;
 		std::vector <string> sectionText;
 
 		string currentSection;
-		size_t currentSectionLength = firstSectionLength;
+		size_t currentSectionLength = pos + firstSectionLength;
 
 		for (size_t i = 0 ; i < value.length() ; ++i) {
 
@@ -558,14 +559,12 @@ void parameter::generateImpl(
 				currentSection += "0123456789ABCDEF"[h1];
 				currentSection += "0123456789ABCDEF"[h2];
 
-				pos += 3;
 				currentSectionLength += 3;
 
 			} else {
 
 				currentSection += value[i];
 
-				++pos;
 				++currentSectionLength;
 			}
 		}
@@ -580,22 +579,27 @@ void parameter::generateImpl(
 		for (int sectionNumber = 0 ; sectionNumber < sectionCount ; ++sectionNumber) {
 
 			os << name;
+			pos += name.length();
 
 			if (sectionCount != 1) {  // no section specifier when only a single one
 
-				os << '*';
-				os << sectionNumber;
+				const string number = std::to_string(sectionNumber);
+				os << '*' << number;
+				pos += 1 + number.length();
 			}
 
 			os << "*=";
+			pos += 2;
 
 			if (sectionNumber == 0) {
 
 				os << m_value->getCharset().getName();
 				os << '\'' << /* No language */ '\'';
+				pos += m_value->getCharset().getName().length() + 2;
 			}
 
 			os << sectionText[sectionNumber];
+			pos += sectionText[sectionNumber].length();
 
 			if (sectionNumber + 1 < sectionCount) {
 
