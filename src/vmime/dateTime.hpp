@@ -220,6 +220,14 @@ public:
 	void getTime(int& hour, int& minute, int& second) const;
 	void getDate(int& year, int& month, int& day) const;
 
+	/** Return the number of seconds elapsed since the Epoch
+	  * (1970-01-01 00:00:00 UTC). The time zone is taken into account,
+	  * so that datetime(t, zone).toTimeT() == t whatever the zone.
+	  *
+	  * @return POSIX timestamp
+	  */
+	time_t toTimeT() const;
+
 	// Set
 	void setYear(const int year);
 	void setMonth(const int month);
@@ -249,9 +257,9 @@ public:
 	bool operator>=(const datetime& other) const;
 
 	// Current date and time
-	static const datetime now();
+	static datetime now();
 
-	const std::vector <shared_ptr <component> > getChildComponents();
+	std::vector <shared_ptr <component> > getChildComponents();
 
 protected:
 

@@ -24,6 +24,7 @@
 #include "vmime/generatedMessageAttachment.hpp"
 
 #include "vmime/utility/outputStreamAdapter.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -37,31 +38,31 @@ generatedMessageAttachment::generatedMessageAttachment(
 }
 
 
-const mediaType generatedMessageAttachment::getType() const {
+mediaType generatedMessageAttachment::getType() const {
 
 	return mediaType(mediaTypes::MESSAGE, mediaTypes::MESSAGE_RFC822);
 }
 
 
-const text generatedMessageAttachment::getDescription() const {
+text generatedMessageAttachment::getDescription() const {
 
 	return m_bpa->getDescription();
 }
 
 
-const word generatedMessageAttachment::getName() const {
+word generatedMessageAttachment::getName() const {
 
 	return m_bpa->getName();
 }
 
 
-const shared_ptr <const contentHandler> generatedMessageAttachment::getData() const {
+shared_ptr <const contentHandler> generatedMessageAttachment::getData() const {
 
 	return m_bpa->getData();
 }
 
 
-const encoding generatedMessageAttachment::getEncoding() const {
+encoding generatedMessageAttachment::getEncoding() const {
 
 	return m_bpa->getEncoding();
 }
@@ -84,7 +85,7 @@ shared_ptr <message> generatedMessageAttachment::getMessage() const {
 	if (!m_msg) {
 
 		// Extract data
-		std::ostringstream oss;
+		utility::details::classicOStringStream oss;
 		utility::outputStreamAdapter os(oss);
 
 		getData()->extract(os);

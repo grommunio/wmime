@@ -42,9 +42,12 @@ VMIME_TEST_SUITE_BEGIN(SMTPCommandTest)
 		VMIME_TEST(testSTARTTLS)
 		VMIME_TEST(testMAIL)
 		VMIME_TEST(testMAIL_Encoded)
+		VMIME_TEST(testMAIL_Encoded_InternationalizedDefaultContext)
 		VMIME_TEST(testMAIL_UTF8)
 		VMIME_TEST(testMAIL_SIZE)
 		VMIME_TEST(testMAIL_SIZE_UTF8)
+		VMIME_TEST(testMAIL_8BIT)
+		VMIME_TEST(testMAIL_BINARYMIME)
 		VMIME_TEST(testRCPT)
 		VMIME_TEST(testRCPT_Encoded)
 		VMIME_TEST(testRCPT_UTF8)
@@ -103,6 +106,7 @@ VMIME_TEST_SUITE_BEGIN(SMTPCommandTest)
 
 		VASSERT_NOT_NULL("Not null", cmd);
 		VASSERT_EQ("Text", "AUTH saslmechanism initial-response", cmd->getText());
+		VASSERT_EQ("Trace Text", "AUTH saslmechanism {initial-response}", cmd->getTraceText());
 	}
 
 	void testSTARTTLS() {
@@ -135,6 +139,32 @@ VMIME_TEST_SUITE_BEGIN(SMTPCommandTest)
 		VASSERT_EQ("Text", "MAIL FROM:<mailtest@xn--r8jz45g.xn--zckzah> RET=FULL ENVID=<dsn-unique-id>", cmd->getText());
 	}
 
+	// Without SMTPUTF8, the address is ASCII whatever the default context says
+	void testMAIL_Encoded_InternationalizedDefaultContext() {
+
+		vmime::generationContext& defaultCtx = vmime::generationContext::getDefaultContext();
+		const bool internationalized = defaultCtx.getInternationalizedEmailSupport();
+
+		defaultCtx.setInternationalizedEmailSupport(true);
+
+		vmime::shared_ptr <SMTPCommand> cmd;
+
+		try {
+
+			cmd = SMTPCommand::MAIL(vmime::mailbox(vmime::emailAddress("mailtest", "例え.テスト")), false, nullptr);
+
+		} catch (...) {
+
+			defaultCtx.setInternationalizedEmailSupport(internationalized);
+			throw;
+		}
+
+		defaultCtx.setInternationalizedEmailSupport(internationalized);
+
+		VASSERT_NOT_NULL("Not null", cmd);
+		VASSERT_EQ("Text", "MAIL FROM:<mailtest@xn--r8jz45g.xn--zckzah>", cmd->getText());
+	}
+
 	void testMAIL_UTF8() {
 
 		auto dsnAttrs = vmime::make_shared <DSNAttributes>("", "FULL", "dsn-unique-id");
@@ -144,7 +174,7 @@ VMIME_TEST_SUITE_BEGIN(SMTPCommandTest)
 		);
 
 		VASSERT_NOT_NULL("Not null", cmd);
-		VASSERT_EQ("Text", "MAIL FROM:<mailtest@例え.テスト> RET=FULL ENVID=<dsn-unique-id> SMTPUTF8", cmd->getText());
+		VASSERT_EQ("Text", "MAIL FROM:<mailtest@例え.テスト> RET=FULL ENVID=<dsn-unique-id> SMTPUTF8 BODY=8BITMIME", cmd->getText());
 	}
 
 	void testMAIL_SIZE() {
@@ -152,7 +182,7 @@ VMIME_TEST_SUITE_BEGIN(SMTPCommandTest)
 		auto dsnAttrs = vmime::make_shared <DSNAttributes>("", "FULL", "dsn-unique-id");
 
 		vmime::shared_ptr <SMTPCommand> cmd = SMTPCommand::MAIL(
-			vmime::mailbox("me@vmime.org"), false, 123456789, dsnAttrs
+			vmime::mailbox("me@vmime.org"), false, SMTPCommand::BODY_7BIT, 123456789, dsnAttrs
 		);
 
 		VASSERT_NOT_NULL("Not null", cmd);
@@ -164,11 +194,40 @@ VMIME_TEST_SUITE_BEGIN(SMTPCommandTest)
 		auto dsnAttrs = vmime::make_shared <DSNAttributes>("", "FULL", "dsn-unique-id");
 
 		vmime::shared_ptr <SMTPCommand> cmd = SMTPCommand::MAIL(
-			vmime::mailbox(vmime::emailAddress("mailtest", "例え.テスト")), true, 123456789, dsnAttrs
+			vmime::mailbox(vmime::emailAddress("mailtest", "例え.テスト")), true, SMTPCommand::BODY_7BIT, 123456789, dsnAttrs
 		);
 
 		VASSERT_NOT_NULL("Not null", cmd);
-		VASSERT_EQ("Text", "MAIL FROM:<mailtest@例え.テスト> RET=FULL ENVID=<dsn-unique-id> SMTPUTF8 SIZE=123456789", cmd->getText());
+		VASSERT_EQ("Text", "MAIL FROM:<mailtest@例え.テスト> RET=FULL ENVID=<dsn-unique-id> SMTPUTF8 BODY=8BITMIME SIZE=123456789", cmd->getText());
+	}
+
+	// 8-bit data must be declared (RFC 6152, section 3)
+	void testMAIL_8BIT() {
+
+		auto dsnAttrs = vmime::make_shared <DSNAttributes>("", "FULL", "dsn-unique-id");
+
+		vmime::shared_ptr <SMTPCommand> cmd = SMTPCommand::MAIL(
+			vmime::mailbox("me@vmime.org"), false, SMTPCommand::BODY_8BITMIME, 123456789, dsnAttrs
+		);
+
+		VASSERT_NOT_NULL("Not null", cmd);
+		VASSERT_EQ("Text", "MAIL FROM:<me@vmime.org> RET=FULL ENVID=<dsn-unique-id> BODY=8BITMIME SIZE=123456789", cmd->getText());
+	}
+
+	// Binary data must be declared (RFC 3030, section 3), also with SMTPUTF8
+	void testMAIL_BINARYMIME() {
+
+		vmime::shared_ptr <SMTPCommand> cmd1 = SMTPCommand::MAIL(
+			vmime::mailbox("me@vmime.org"), false, SMTPCommand::BODY_BINARYMIME, 0, nullptr
+		);
+
+		VASSERT_EQ("1", "MAIL FROM:<me@vmime.org> BODY=BINARYMIME", cmd1->getText());
+
+		vmime::shared_ptr <SMTPCommand> cmd2 = SMTPCommand::MAIL(
+			vmime::mailbox(vmime::emailAddress("mailtest", "例え.テスト")), true, SMTPCommand::BODY_BINARYMIME, 0, nullptr
+		);
+
+		VASSERT_EQ("2", "MAIL FROM:<mailtest@例え.テスト> SMTPUTF8 BODY=BINARYMIME", cmd2->getText());
 	}
 
 	void testRCPT() {

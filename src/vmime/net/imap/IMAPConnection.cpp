@@ -39,10 +39,9 @@
 #include "vmime/utility/stringUtils.hpp"
 
 #include "vmime/net/defaultConnectionInfos.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
-#if VMIME_HAVE_SASL_SUPPORT
-	#include "vmime/security/sasl/SASLContext.hpp"
-#endif // VMIME_HAVE_SASL_SUPPORT
+#include "vmime/security/sasl/SASLContext.hpp"
 
 #if VMIME_HAVE_TLS_SUPPORT
 	#include "vmime/net/tls/TLSSession.hpp"
@@ -271,7 +270,6 @@ void IMAPConnection::authenticate() {
 
 	getAuthenticator()->setService(m_store.lock());
 
-#if VMIME_HAVE_SASL_SUPPORT
 	// First, try SASL authentication
 	if (GET_PROPERTY(bool, PROPERTY_OPTIONS_SASL)) {
 
@@ -299,9 +297,22 @@ void IMAPConnection::authenticate() {
 			throw;
 		}
 	}
-#endif // VMIME_HAVE_SASL_SUPPORT
 
-	// Normal authentication
+	// Normal authentication, with the LOGIN command, which sends the password
+	// in clear text: clients MUST NOT use it on unsecure networks, nor if the
+	// server advertises the LOGINDISABLED capability (RFC 9051, section 6.2.3)
+	if (!isPlaintextAuthenticationAllowed()) {
+
+		internalDisconnect();
+		throw exceptions::plaintext_authentication_not_allowed();
+	}
+
+	if (hasCapability("LOGINDISABLED")) {
+
+		internalDisconnect();
+		throw exceptions::authentication_error("LOGIN is disabled by the server (LOGINDISABLED).");
+	}
+
 	const string username = getAuthenticator()->getUsername();
 	const string password = getAuthenticator()->getPassword();
 
@@ -329,7 +340,13 @@ void IMAPConnection::authenticate() {
 }
 
 
-#if VMIME_HAVE_SASL_SUPPORT
+bool IMAPConnection::isPlaintextAuthenticationAllowed() {
+
+	// The credentials must not be sent in clear text on a connection which
+	// is not secured, unless the application allows it (RFC 8314, section 5.2)
+	return m_secured || GET_PROPERTY(bool, PROPERTY_AUTH_ALLOW_PLAINTEXT);
+}
+
 
 void IMAPConnection::authenticateSASL() {
 
@@ -364,16 +381,35 @@ void IMAPConnection::authenticateSASL() {
 	shared_ptr <security::sasl::SASLContext> saslContext =
 		security::sasl::SASLContext::create();
 
+	saslContext->setPlaintextAllowed(isPlaintextAuthenticationAllowed());
+
+#if VMIME_HAVE_TLS_SUPPORT
+	// Allow using mechanisms with channel binding ("-PLUS" variants)
+	if (m_secured) {
+		saslContext->setChannelBindingData(dynamicCast <tls::TLSSocket>(m_socket));
+	}
+#endif // VMIME_HAVE_TLS_SUPPORT
+
+	bool plaintextMechanismRejected = false;
+
 	for (unsigned int i = 0 ; i < saslMechs.size() ; ++i) {
 
 		try {
 			mechList.push_back(saslContext->createMechanism(saslMechs[i]));
+		} catch (exceptions::plaintext_mechanism_not_allowed&) {
+			// Ignore mechanism
+			plaintextMechanismRejected = true;
 		} catch (exceptions::no_such_mechanism&) {
 			// Ignore mechanism
 		}
 	}
 
 	if (mechList.empty()) {
+
+		if (plaintextMechanismRejected) {
+			throw exceptions::plaintext_authentication_not_allowed();
+		}
+
 		throw exceptions::authentication_error("No SASL mechanism available.");
 	}
 
@@ -405,7 +441,8 @@ void IMAPConnection::authenticateSASL() {
 
 		shared_ptr <IMAPCommand> authCmd;
 
-		if (saslSession->getMechanism()->hasInitialResponse()) {
+		// An initial response can only be sent if the server supports it (RFC 4959)
+		if (hasCapability("SASL-IR") && saslSession->getMechanism()->hasInitialResponse()) {
 
 			byte_t* initialResp = 0;
 			size_t initialRespLen = 0;
@@ -532,8 +569,6 @@ void IMAPConnection::authenticateSASL() {
 	throw exceptions::authentication_error("Could not authenticate using SASL: all mechanisms failed.");
 }
 
-#endif // VMIME_HAVE_SASL_SUPPORT
-
 
 #if VMIME_HAVE_TLS_SUPPORT
 
@@ -597,7 +632,7 @@ void IMAPConnection::startTLS() {
 #endif // VMIME_HAVE_TLS_SUPPORT
 
 
-const std::vector <string> IMAPConnection::getCapabilities() {
+std::vector <string> IMAPConnection::getCapabilities() {
 
 	if (!m_capabilitiesFetched) {
 		fetchCapabilities();
@@ -744,7 +779,7 @@ void IMAPConnection::sendIdentification() {
 }
 
 
-const std::map <string, string> IMAPConnection::getServerIdentification() const {
+std::map <string, string> IMAPConnection::getServerIdentification() const {
 
 	return m_serverId;
 }
@@ -897,8 +932,8 @@ void IMAPConnection::sendCommand(const shared_ptr <IMAPCommand>& cmd) {
 
 	if (m_tracer) {
 
-		std::ostringstream oss;
-		oss << string(*m_tag) << " " << cmd->getText();
+		utility::details::classicOStringStream oss;
+		oss << string(*m_tag) << " " << cmd->getTraceText();
 
 		m_tracer->traceSend(oss.str());
 	}

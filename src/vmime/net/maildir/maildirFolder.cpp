@@ -42,6 +42,7 @@
 
 #include "vmime/utility/outputStreamAdapter.hpp"
 #include "vmime/utility/inputStreamStringAdapter.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -107,7 +108,7 @@ int maildirFolder::getMode() const {
 }
 
 
-const folderAttributes maildirFolder::getAttributes() {
+folderAttributes maildirFolder::getAttributes() {
 
 	folderAttributes attribs;
 
@@ -125,13 +126,13 @@ const folderAttributes maildirFolder::getAttributes() {
 }
 
 
-const folder::path::component maildirFolder::getName() const {
+folder::path::component maildirFolder::getName() const {
 
 	return m_name;
 }
 
 
-const folder::path maildirFolder::getFullPath() const {
+folder::path maildirFolder::getFullPath() const {
 
 	return m_path;
 }
@@ -754,7 +755,7 @@ messageSet maildirFolder::addMessage(
 	utility::progressListener* progress
 ) {
 
-	std::ostringstream oss;
+	utility::details::classicOStringStream oss;
 	utility::outputStreamAdapter ossAdapter(oss);
 
 	msg->generate(ossAdapter);
@@ -1341,7 +1342,7 @@ int maildirFolder::getFetchCapabilities() const {
 }
 
 
-const utility::file::path maildirFolder::getMessageFSPath(const size_t number) const {
+utility::file::path maildirFolder::getMessageFSPath(const size_t number) const {
 
 	utility::file::path curDirPath = m_store.lock()->getFormat()->
 		folderPathToFileSystemPath(m_path, maildirFormat::CUR_DIRECTORY);

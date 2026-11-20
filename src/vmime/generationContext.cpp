@@ -69,7 +69,7 @@ void generationContext::setMaxLineLength(const size_t maxLineLength) {
 
 
 
-const string generationContext::getPrologText() const {
+string generationContext::getPrologText() const {
 
 	return m_prologText;
 }
@@ -81,7 +81,7 @@ void generationContext::setPrologText(const string& prologText) {
 }
 
 
-const string generationContext::getEpilogText() const {
+string generationContext::getEpilogText() const {
 
 	return m_epilogText;
 }
@@ -132,6 +132,7 @@ void generationContext::copyFrom(const generationContext& ctx) {
 	m_maxLineLength = ctx.m_maxLineLength;
 	m_prologText = ctx.m_prologText;
 	m_epilogText = ctx.m_epilogText;
+	m_wrapMessageId = ctx.m_wrapMessageId;
 	m_paramValueMode = ctx.m_paramValueMode;
 }
 

@@ -34,6 +34,7 @@
 
 #include "vmime/mailbox.hpp"
 #include "vmime/utility/outputStreamAdapter.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -51,8 +52,7 @@ SMTPCommand::SMTPCommand(const string& text, const string& traceText)
 // static
 shared_ptr <SMTPCommand> SMTPCommand::EHLO(const string& hostname) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "EHLO " << hostname;
 
 	return createCommand(cmd.str());
@@ -62,8 +62,7 @@ shared_ptr <SMTPCommand> SMTPCommand::EHLO(const string& hostname) {
 // static
 shared_ptr <SMTPCommand> SMTPCommand::HELO(const string& hostname) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "HELO " << hostname;
 
 	return createCommand(cmd.str());
@@ -73,8 +72,7 @@ shared_ptr <SMTPCommand> SMTPCommand::HELO(const string& hostname) {
 // static
 shared_ptr <SMTPCommand> SMTPCommand::AUTH(const string& mechName) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "AUTH " << mechName;
 
 	return createCommand(cmd.str());
@@ -84,11 +82,13 @@ shared_ptr <SMTPCommand> SMTPCommand::AUTH(const string& mechName) {
 // static
 shared_ptr <SMTPCommand> SMTPCommand::AUTH(const string& mechName, const std::string& initialResponse) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "AUTH " << mechName << " " << initialResponse;
 
-	return createCommand(cmd.str());
+	utility::details::classicOStringStream trace;
+	trace << "AUTH " << mechName << " {initial-response}";
+
+	return createCommand(cmd.str(), trace.str());
 }
 
 
@@ -99,25 +99,8 @@ shared_ptr <SMTPCommand> SMTPCommand::STARTTLS() {
 }
 
 
-// static
-shared_ptr <SMTPCommand> SMTPCommand::MAIL(
-	const mailbox& mbox, const bool utf8,
-	const shared_ptr <const DSNAttributes>& dsnAttrs
-) {
-
-	return MAIL(mbox, utf8, 0, dsnAttrs);
-}
-
-
-// static
-shared_ptr <SMTPCommand> SMTPCommand::MAIL(
-	const mailbox& mbox, const bool utf8, const size_t size,
-	const shared_ptr <const DSNAttributes>& dsnAttrs
-) {
-
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
-	cmd << "MAIL FROM:<";
+// Write the address of a mailbox in a MAIL or RCPT command
+static void writeAddress(std::ostream& cmd, const mailbox& mbox, const bool utf8) {
 
 	if (utf8) {
 
@@ -125,10 +108,36 @@ shared_ptr <SMTPCommand> SMTPCommand::MAIL(
 
 	} else {
 
-		vmime::utility::outputStreamAdapter cmd2(cmd);
-		mbox.getEmail().generate(cmd2);
-	}
+		// Without SMTPUTF8, the domain part must be written as IDNA A-labels,
+		// even if Internationalized Email is enabled in the default context
+		generationContext ctx(generationContext::getDefaultContext());
+		ctx.setInternationalizedEmailSupport(false);
 
+		vmime::utility::outputStreamAdapter cmd2(cmd);
+		mbox.getEmail().generate(ctx, cmd2);
+	}
+}
+
+
+// static
+shared_ptr <SMTPCommand> SMTPCommand::MAIL(
+	const mailbox& mbox, const bool utf8,
+	const shared_ptr <const DSNAttributes>& dsnAttrs
+) {
+
+	return MAIL(mbox, utf8, BODY_7BIT, 0, dsnAttrs);
+}
+
+
+// static
+shared_ptr <SMTPCommand> SMTPCommand::MAIL(
+	const mailbox& mbox, const bool utf8, const BodyType bodyType, const size_t size,
+	const shared_ptr <const DSNAttributes>& dsnAttrs
+) {
+
+	utility::details::classicOStringStream cmd;
+	cmd << "MAIL FROM:<";
+	writeAddress(cmd, mbox, utf8);
 	cmd << ">";
 
 	if (dsnAttrs && !dsnAttrs->getReturnFormat().empty()) {
@@ -140,6 +149,15 @@ shared_ptr <SMTPCommand> SMTPCommand::MAIL(
 
 	if (utf8) {
 		cmd << " SMTPUTF8";
+	}
+
+	// Binary data must be declared (RFC 3030, section 3), as well as 8-bit
+	// data (RFC 6152, section 3), and an internationalized message contains
+	// 8-bit data (RFC 6531, section 1)
+	if (bodyType == BODY_BINARYMIME) {
+		cmd << " BODY=BINARYMIME";
+	} else if (utf8 || bodyType == BODY_8BITMIME) {
+		cmd << " BODY=8BITMIME";
 	}
 
 	if (size != 0) {
@@ -156,20 +174,9 @@ shared_ptr <SMTPCommand> SMTPCommand::RCPT(
 	const shared_ptr <const DSNAttributes>& dsnAttrs
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "RCPT TO:<";
-
-	if (utf8) {
-
-		cmd << mbox.getEmail().toText().getConvertedText(vmime::charsets::UTF_8);
-
-	} else {
-
-		vmime::utility::outputStreamAdapter cmd2(cmd);
-		mbox.getEmail().generate(cmd2);
-	}
-
+	writeAddress(cmd, mbox, utf8);
 	cmd << ">";
 
 	if (dsnAttrs && !dsnAttrs->getNotificationConditions().empty()) {
@@ -197,8 +204,7 @@ shared_ptr <SMTPCommand> SMTPCommand::DATA() {
 // static
 shared_ptr <SMTPCommand> SMTPCommand::BDAT(const size_t chunkSize, const bool last) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "BDAT " << chunkSize;
 
 	if (last) {
@@ -234,13 +240,13 @@ shared_ptr <SMTPCommand> SMTPCommand::createCommand(const string& text, const st
 }
 
 
-const string SMTPCommand::getText() const {
+string SMTPCommand::getText() const {
 
 	return m_text;
 }
 
 
-const string SMTPCommand::getTraceText() const {
+string SMTPCommand::getTraceText() const {
 
 	return m_traceText;
 }

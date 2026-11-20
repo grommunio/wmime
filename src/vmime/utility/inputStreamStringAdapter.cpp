@@ -64,18 +64,22 @@ void inputStreamStringAdapter::reset() {
 
 size_t inputStreamStringAdapter::read(byte_t* const data, const size_t count) {
 
-	if (m_pos + count >= m_end) {
+	// Copy from bytes rather than chars: with the same source and destination
+	// types, std::copy() is a memmove() instead of a byte-by-byte loop
+	const byte_t* const buffer = reinterpret_cast <const byte_t*>(m_buffer.data());
 
-		const size_t remaining = m_end - m_pos;
+	const size_t remaining = m_end - m_pos;
 
-		std::copy(m_buffer.begin() + m_pos, m_buffer.end(), data);
+	if (remaining <= count) {
+
+		std::copy(buffer + m_pos, buffer + m_end, data);
 		m_pos = m_end;
 
 		return remaining;
 
 	} else {
 
-		std::copy(m_buffer.begin() + m_pos, m_buffer.begin() + m_pos + count, data);
+		std::copy(buffer + m_pos, buffer + m_pos + count, data);
 		m_pos += count;
 
 		return count;
@@ -85,9 +89,10 @@ size_t inputStreamStringAdapter::read(byte_t* const data, const size_t count) {
 
 size_t inputStreamStringAdapter::skip(const size_t count) {
 
-	if (m_pos + count >= m_end) {
+	const size_t remaining = m_end - m_pos;
 
-		const size_t remaining = m_end - m_pos;
+	if (remaining <= count) {
+
 		m_pos = m_end;
 
 		return remaining;

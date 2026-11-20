@@ -33,6 +33,7 @@
 
 #include "vmime/utility/stringUtils.hpp"
 #include "vmime/exception.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <ws2tcpip.h>
 
@@ -85,7 +86,7 @@ void windowsSocket::connect(const vmime::string& address, const vmime::port_t po
 
 	if (m_tracer) {
 
-		std::ostringstream trace;
+		utility::details::classicOStringStream trace;
 		trace << "Connecting to " << address << ", port " << port;
 
 		m_tracer->traceSend(trace.str());
@@ -173,7 +174,7 @@ void windowsSocket::disconnect() {
 }
 
 
-const string windowsSocket::getPeerAddress() const {
+string windowsSocket::getPeerAddress() const {
 
 	// Get address of connected peer
 	sockaddr_storage peer;
@@ -196,7 +197,7 @@ const string windowsSocket::getPeerAddress() const {
 }
 
 
-const string windowsSocket::getPeerName() const {
+string windowsSocket::getPeerName() const {
 
 	// Do not try to get a host name for a numeric address: the peer name is
 	// used as the TLS reference identity, and it must not be derived from an
@@ -381,7 +382,8 @@ unsigned int windowsSocket::getStatus() const {
 
 void windowsSocket::throwSocketError(const int err) {
 
-	std::ostringstream oss;
+	utility::details::classicOStringStream oss;
+
 	string msg;
 
 	LPTSTR str;

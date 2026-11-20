@@ -41,7 +41,7 @@ SMTPServiceInfos::SMTPServiceInfos(const bool smtps)
 }
 
 
-const string SMTPServiceInfos::getPropertyPrefix() const {
+string SMTPServiceInfos::getPropertyPrefix() const {
 
 	if (m_smtps) {
 		return "transport.smtps.";
@@ -56,10 +56,8 @@ const SMTPServiceInfos::props& SMTPServiceInfos::getProperties() const {
 	static props smtpProps = {
 		// SMTP-specific options
 		property("options.need-authentication", serviceInfos::property::TYPE_BOOLEAN, "false"),
-#if VMIME_HAVE_SASL_SUPPORT
 		property("options.sasl", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.sasl.fallback", serviceInfos::property::TYPE_BOOLEAN, "false"),
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 		property("options.pipelining", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.chunking", serviceInfos::property::TYPE_BOOLEAN, "true"),
@@ -67,6 +65,7 @@ const SMTPServiceInfos::props& SMTPServiceInfos::getProperties() const {
 		// Common properties
 		property(serviceInfos::property::AUTH_USERNAME, serviceInfos::property::FLAG_REQUIRED),
 		property(serviceInfos::property::AUTH_PASSWORD, serviceInfos::property::FLAG_REQUIRED),
+		property(serviceInfos::property::AUTH_ALLOW_PLAINTEXT),
 
 #if VMIME_HAVE_TLS_SUPPORT
 		property(serviceInfos::property::CONNECTION_TLS),
@@ -80,10 +79,8 @@ const SMTPServiceInfos::props& SMTPServiceInfos::getProperties() const {
 	static props smtpsProps = {
 		// SMTP-specific options
 		property("options.need-authentication", serviceInfos::property::TYPE_BOOLEAN, "false"),
-#if VMIME_HAVE_SASL_SUPPORT
 		property("options.sasl", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.sasl.fallback", serviceInfos::property::TYPE_BOOLEAN, "false"),
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 		property("options.pipelining", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.chunking", serviceInfos::property::TYPE_BOOLEAN, "true"),
@@ -91,6 +88,7 @@ const SMTPServiceInfos::props& SMTPServiceInfos::getProperties() const {
 		// Common properties
 		property(serviceInfos::property::AUTH_USERNAME, serviceInfos::property::FLAG_REQUIRED),
 		property(serviceInfos::property::AUTH_PASSWORD, serviceInfos::property::FLAG_REQUIRED),
+		property(serviceInfos::property::AUTH_ALLOW_PLAINTEXT),
 
 #if VMIME_HAVE_TLS_SUPPORT
 		property(serviceInfos::property::CONNECTION_TLS),
@@ -105,21 +103,23 @@ const SMTPServiceInfos::props& SMTPServiceInfos::getProperties() const {
 }
 
 
-const std::vector <serviceInfos::property> SMTPServiceInfos::getAvailableProperties() const {
+std::vector <serviceInfos::property> SMTPServiceInfos::getAvailableProperties() const {
 
 	std::vector <property> list;
 	const props& p = getProperties();
 
 	// SMTP-specific options
 	list.push_back(p.PROPERTY_OPTIONS_NEEDAUTH);
-#if VMIME_HAVE_SASL_SUPPORT
 	list.push_back(p.PROPERTY_OPTIONS_SASL);
 	list.push_back(p.PROPERTY_OPTIONS_SASL_FALLBACK);
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 	// Common properties
 	list.push_back(p.PROPERTY_AUTH_USERNAME);
 	list.push_back(p.PROPERTY_AUTH_PASSWORD);
+
+	if (!m_smtps) {
+		list.push_back(p.PROPERTY_AUTH_ALLOW_PLAINTEXT);
+	}
 
 #if VMIME_HAVE_TLS_SUPPORT
 	if (!m_smtps) {

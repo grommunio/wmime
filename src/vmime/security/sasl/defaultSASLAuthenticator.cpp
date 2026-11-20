@@ -24,7 +24,7 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/security/sasl/defaultSASLAuthenticator.hpp"
@@ -51,7 +51,7 @@ defaultSASLAuthenticator::~defaultSASLAuthenticator() {
 }
 
 
-const std::vector <shared_ptr <SASLMechanism> > defaultSASLAuthenticator::getAcceptableMechanisms(
+std::vector <shared_ptr <SASLMechanism> > defaultSASLAuthenticator::getAcceptableMechanisms(
 	const std::vector <shared_ptr <SASLMechanism> >& available,
 	const shared_ptr <SASLMechanism>& suggested
 ) const {
@@ -78,37 +78,37 @@ const std::vector <shared_ptr <SASLMechanism> > defaultSASLAuthenticator::getAcc
 }
 
 
-const string defaultSASLAuthenticator::getUsername() const {
+string defaultSASLAuthenticator::getUsername() const {
 
 	return m_default.getUsername();
 }
 
 
-const string defaultSASLAuthenticator::getPassword() const {
+string defaultSASLAuthenticator::getPassword() const {
 
 	return m_default.getPassword();
 }
 
 
-const string defaultSASLAuthenticator::getAccessToken() const {
+string defaultSASLAuthenticator::getAccessToken() const {
 
 	return m_default.getAccessToken();
 }
 
 
-const string defaultSASLAuthenticator::getHostname() const {
+string defaultSASLAuthenticator::getHostname() const {
 
 	return m_default.getHostname();
 }
 
 
-const string defaultSASLAuthenticator::getAnonymousToken() const {
+string defaultSASLAuthenticator::getAnonymousToken() const {
 
 	return m_default.getAnonymousToken();
 }
 
 
-const string defaultSASLAuthenticator::getServiceName() const {
+string defaultSASLAuthenticator::getServiceName() const {
 
 	return m_saslSession.lock()->getServiceName();
 }
@@ -156,4 +156,4 @@ shared_ptr <SASLMechanism> defaultSASLAuthenticator::getSASLMechanism() const {
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES

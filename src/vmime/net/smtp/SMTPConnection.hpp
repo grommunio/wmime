@@ -102,9 +102,8 @@ private:
 
 	void helo();
 	void authenticate();
-#if VMIME_HAVE_SASL_SUPPORT
 	void authenticateSASL();
-#endif // VMIME_HAVE_SASL_SUPPORT
+	bool isPlaintextAuthenticationAllowed();
 
 #if VMIME_HAVE_TLS_SUPPORT
 	void startTLS();

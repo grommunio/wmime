@@ -37,14 +37,9 @@
 #include "vmime/security/digest/messageDigestFactory.hpp"
 
 #include "vmime/net/defaultConnectionInfos.hpp"
+#include "vmime/utility/details/classicIStringStream.hpp"
 
-#if VMIME_HAVE_SASL_SUPPORT
-	#include "vmime/security/sasl/SASLContext.hpp"
-#else
-	#include "vmime/utility/encoder/b64Encoder.hpp"
-	#include "vmime/utility/inputStreamStringAdapter.hpp"
-	#include "vmime/utility/outputStreamStringAdapter.hpp"
-#endif // VMIME_HAVE_SASL_SUPPORT
+#include "vmime/security/sasl/SASLContext.hpp"
 
 #if VMIME_HAVE_TLS_SUPPORT
 	#include "vmime/net/tls/TLSSession.hpp"
@@ -246,8 +241,7 @@ void SMTPConnection::helo() {
 
 			const string line = resp->getLineAt(i).getText();
 
-			std::istringstream iss(line);
-			iss.imbue(std::locale::classic());
+			utility::details::classicIStringStream iss(line);
 
 			string ext;
 			iss >> ext;
@@ -266,7 +260,8 @@ void SMTPConnection::helo() {
 				params.push_back(utility::stringUtils::toUpper(param));
 			}
 
-			m_extensions[ext] = params;
+			// Extension keywords are case-insensitive (RFC 5321, section 2.4)
+			m_extensions[utility::stringUtils::toUpper(ext)] = params;
 		}
 	}
 }
@@ -278,7 +273,7 @@ bool SMTPConnection::hasExtension(
 ) const {
 
 	std::map <string, std::vector <string> >::const_iterator
-		it = m_extensions.find(extName);
+		it = m_extensions.find(utility::stringUtils::toUpper(extName));
 
 	if (it != m_extensions.end()) {
 
@@ -304,7 +299,6 @@ void SMTPConnection::authenticate() {
 
 	getAuthenticator()->setService(m_transport.lock());
 
-#if VMIME_HAVE_SASL_SUPPORT
 	// Try SASL authentication
 	if (GET_PROPERTY(bool, PROPERTY_OPTIONS_SASL)) {
 
@@ -321,55 +315,20 @@ void SMTPConnection::authenticate() {
 			throw;
 		}
 	}
-#else  // no SASL
-
-	// allow AUTH PLAIN over TLS - it is a popular and simple mechanism
-	if (m_secured) {
-
-		std::vector <string> authMechs;
-		hasExtension("AUTH", &authMechs);
-
-		if (authMechs.empty()) {
-			throw exceptions::authentication_error("No AUTH mechanism available.");
-		}
-
-		const string plain("PLAIN");
-
-		if (std::find(authMechs.begin(), authMechs.end(), plain) != authMechs.end()) {
-
-			const string username = getAuthenticator()->getUsername();
-			const string password = getAuthenticator()->getPassword();
-			const string authToken = username + '\0' + username + '\0' + password;
-
-			utility::inputStreamStringAdapter in(authToken);
-			string authTokenBase64;
-			utility::outputStreamStringAdapter out(authTokenBase64);
-
-			vmime::utility::encoder::b64Encoder encoder;
-			encoder.encode(in, out);
-
-			sendRequest(SMTPCommand::AUTH(plain, authTokenBase64));
-
-			shared_ptr <SMTPResponse> response = readResponse();
-
-			const int code = response ? response->getCode() : -1;
-
-			if (code == 235) {
-				m_authenticated = true;
-				return;
-			}
-		}
-	}
-
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 	// No other authentication method is possible
 	throw exceptions::authentication_error("All authentication methods failed");
 }
 
 
+bool SMTPConnection::isPlaintextAuthenticationAllowed() {
 
-#if VMIME_HAVE_SASL_SUPPORT
+	// The credentials must not be sent in clear text on a connection which
+	// is not secured, unless the application allows it (RFC 8314, section 5.2)
+	return m_secured || GET_PROPERTY(bool, PROPERTY_AUTH_ALLOW_PLAINTEXT);
+}
+
+
 
 void SMTPConnection::authenticateSASL() {
 
@@ -390,12 +349,28 @@ void SMTPConnection::authenticateSASL() {
 	shared_ptr <security::sasl::SASLContext> saslContext =
 		security::sasl::SASLContext::create();
 
+	saslContext->setPlaintextAllowed(isPlaintextAuthenticationAllowed());
+
+#if VMIME_HAVE_TLS_SUPPORT
+	// Allow using mechanisms with channel binding ("-PLUS" variants)
+	if (m_secured) {
+		saslContext->setChannelBindingData(dynamicCast <tls::TLSSocket>(m_socket));
+	}
+#endif // VMIME_HAVE_TLS_SUPPORT
+
+	bool plaintextMechanismRejected = false;
+
 	for (unsigned int i = 0 ; i < saslMechs.size() ; ++i) {
 
 		try {
 
 			mechList.push_back
 				(saslContext->createMechanism(saslMechs[i]));
+
+		} catch (exceptions::plaintext_mechanism_not_allowed&) {
+
+			// Ignore mechanism
+			plaintextMechanismRejected = true;
 
 		} catch (exceptions::no_such_mechanism&) {
 
@@ -404,6 +379,11 @@ void SMTPConnection::authenticateSASL() {
 	}
 
 	if (mechList.empty()) {
+
+		if (plaintextMechanismRejected) {
+			throw exceptions::plaintext_authentication_not_allowed();
+		}
+
 		throw exceptions::authentication_error("No SASL mechanism available.");
 	}
 
@@ -433,6 +413,9 @@ void SMTPConnection::authenticateSASL() {
 
 		saslSession->init();
 
+		shared_ptr <SMTPCommand> authCmd;
+		string delayedInitialResp;
+
 		if (saslSession->getMechanism()->hasInitialResponse()) {
 
 			byte_t* initialResp = 0;
@@ -444,15 +427,27 @@ void SMTPConnection::authenticateSASL() {
 			delete [] initialResp;
 
 			if (encodedInitialResp.empty()) {
-				sendRequest(SMTPCommand::AUTH(mech->getName(), "="));
+				authCmd = SMTPCommand::AUTH(mech->getName(), "=");
 			} else {
-				sendRequest(SMTPCommand::AUTH(mech->getName(), encodedInitialResp));
+				authCmd = SMTPCommand::AUTH(mech->getName(), encodedInitialResp);
+			}
+
+			// The AUTH command is subject to the 512-octet limit of a command line,
+			// including CRLF (RFC 4954, section 4 and RFC 5321, section 4.5.3.1.4).
+			// If the initial response does not fit, send it after the first (empty)
+			// challenge from the server instead.
+			if (authCmd->getText().length() + 2 > 512) {
+
+				authCmd = SMTPCommand::AUTH(mech->getName());
+				delayedInitialResp = encodedInitialResp;
 			}
 
 		} else {
 
-			sendRequest(SMTPCommand::AUTH(mech->getName()));
+			authCmd = SMTPCommand::AUTH(mech->getName());
 		}
+
+		sendRequest(authCmd);
 
 		for (bool cont = true ; cont ; ) {
 
@@ -475,14 +470,26 @@ void SMTPConnection::authenticateSASL() {
 
 					try {
 
-						// Extract challenge
-						saslContext->decodeB64(response->getText(), &challenge, &challengeLen);
+						string respB64;
 
-						// Prepare response
-						saslSession->evaluateChallenge(challenge, challengeLen, &resp, &respLen);
+						if (!delayedInitialResp.empty()) {
+
+							// Initial response was too long to be sent with AUTH
+							respB64 = delayedInitialResp + "\r\n";
+							delayedInitialResp.clear();
+
+						} else {
+
+							// Extract challenge
+							saslContext->decodeB64(response->getText(), &challenge, &challengeLen);
+
+							// Prepare response
+							saslSession->evaluateChallenge(challenge, challengeLen, &resp, &respLen);
+
+							respB64 = saslContext->encodeB64(resp, respLen) + "\r\n";
+						}
 
 						// Send response
-						const string respB64 = saslContext->encodeB64(resp, respLen) + "\r\n";
 						m_socket->sendRaw(utility::stringUtils::bytesFromString(respB64), respB64.length());
 
 						if (m_tracer) {
@@ -541,8 +548,6 @@ void SMTPConnection::authenticateSASL() {
 
 	throw exceptions::authentication_error("Could not authenticate using SASL: all mechanisms failed.");
 }
-
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 
 #if VMIME_HAVE_TLS_SUPPORT

@@ -23,6 +23,7 @@
 
 #include "vmime/propertySet.hpp"
 #include "vmime/parserHelpers.hpp"
+#include "vmime/utility/details/classicIStringStream.hpp"
 
 
 namespace vmime {
@@ -221,7 +222,7 @@ propertySet::propertyProxy propertySet::operator[](const string& name) {
 }
 
 
-const propertySet::constPropertyProxy propertySet::operator[](const string& name) const {
+propertySet::constPropertyProxy propertySet::operator[](const string& name) const {
 
 	return constPropertyProxy(name, this);
 }
@@ -233,7 +234,7 @@ bool propertySet::hasProperty(const string& name) const {
 }
 
 
-const std::vector <shared_ptr <const propertySet::property> > propertySet::getPropertyList() const {
+std::vector <shared_ptr <const propertySet::property> > propertySet::getPropertyList() const {
 
 	std::vector <shared_ptr <const property> > res;
 
@@ -245,7 +246,7 @@ const std::vector <shared_ptr <const propertySet::property> > propertySet::getPr
 }
 
 
-const std::vector <shared_ptr <propertySet::property> > propertySet::getPropertyList() {
+std::vector <shared_ptr <propertySet::property> > propertySet::getPropertyList() {
 
 	std::vector <shared_ptr <property> > res;
 
@@ -340,8 +341,7 @@ bool propertySet::property::getValue() const {
 
 		int val = 0;
 
-		std::istringstream iss(m_value);
-		iss.imbue(std::locale::classic());  // no formatting
+		utility::details::classicIStringStream iss(m_value);
 
 		iss >> val;
 
@@ -377,8 +377,7 @@ bool propertySet::valueFromString(const string& value) {
 
 		int val = 0;
 
-		std::istringstream iss(value);
-		iss.imbue(std::locale::classic());  // no formatting
+		utility::details::classicIStringStream iss(value);
 
 		iss >> val;
 

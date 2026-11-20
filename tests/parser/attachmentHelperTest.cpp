@@ -33,13 +33,17 @@ VMIME_TEST_SUITE_BEGIN(attachmentHelperTest)
 		VMIME_TEST(testIsBodyPartAnAttachment1)
 		VMIME_TEST(testIsBodyPartAnAttachment2)
 		VMIME_TEST(testIsBodyPartAnAttachment3)
+		VMIME_TEST(testIsAttachment)
+		VMIME_TEST(testGetAttachmentName)
 		VMIME_TEST(testGetBodyPartAttachment)
 		VMIME_TEST(testAddAttachmentMessage1)
+		VMIME_TEST(testAddAttachmentMessage8bit)
+		VMIME_TEST(testAddAttachmentMessageBinary)
 		VMIME_TEST(testGetBodyPartAttachmentMessage)
 	VMIME_TEST_LIST_END
 
 
-	static const vmime::string getStructure(const vmime::shared_ptr <vmime::bodyPart>& part) {
+	static vmime::string getStructure(const vmime::shared_ptr <vmime::bodyPart>& part) {
 
 		vmime::shared_ptr <vmime::body> bdy = part->getBody();
 
@@ -65,7 +69,7 @@ VMIME_TEST_SUITE_BEGIN(attachmentHelperTest)
 		return res + "]";
 	}
 
-	static const vmime::string extractBodyContents(
+	static vmime::string extractBodyContents(
 		const vmime::shared_ptr <const vmime::bodyPart>& part
 	) {
 
@@ -215,6 +219,57 @@ VMIME_TEST_SUITE_BEGIN(attachmentHelperTest)
 		VASSERT_EQ("1", false, vmime::attachmentHelper::isBodyPartAnAttachment(p));
 	}
 
+	// Header only, for the root part or not
+	void testIsAttachment() {
+
+		vmime::header hdr;
+		hdr.parse(
+			"Content-Type: image/png\r\n"
+			"Content-Disposition: inline\r\n"
+		);
+
+		// An inline part may be an attachment, but not the root part
+		VASSERT_EQ("1", true, vmime::attachmentHelper::isAttachment(hdr, false));
+		VASSERT_EQ("2", false, vmime::attachmentHelper::isAttachment(hdr, true));
+
+		// Inline object (with a Content-Id field)
+		hdr.parse(
+			"Content-Type: image/png\r\n"
+			"Content-Disposition: inline\r\n"
+			"Content-Id: <logo@vmime.org>\r\n"
+		);
+
+		VASSERT_EQ("3", false, vmime::attachmentHelper::isAttachment(hdr, false));
+		VASSERT_EQ("4", true, vmime::attachmentHelper::isAttachment(
+			hdr, false, vmime::attachmentHelper::INLINE_OBJECTS));
+	}
+
+	void testGetAttachmentName() {
+
+		vmime::header hdr;
+
+		// The "filename" parameter of Content-Disposition comes first
+		hdr.parse(
+			"Content-Type: application/pdf; name=\"type.pdf\"\r\n"
+			"Content-Disposition: attachment; filename=\"disposition.pdf\"\r\n"
+		);
+
+		VASSERT_EQ("1", "disposition.pdf", vmime::attachmentHelper::getAttachmentName(hdr).getBuffer());
+
+		// Then the "name" parameter of Content-Type (RFC-1341)
+		hdr.parse(
+			"Content-Type: application/pdf; name=\"type.pdf\"\r\n"
+			"Content-Disposition: attachment\r\n"
+		);
+
+		VASSERT_EQ("2", "type.pdf", vmime::attachmentHelper::getAttachmentName(hdr).getBuffer());
+
+		// No name
+		hdr.parse("Content-Type: application/pdf\r\n");
+
+		VASSERT_EQ("3", "", vmime::attachmentHelper::getAttachmentName(hdr).getBuffer());
+	}
+
 	void testGetBodyPartAttachment() {
 
 		vmime::string data =
@@ -290,6 +345,93 @@ VMIME_TEST_SUITE_BEGIN(attachmentHelperTest)
 
 		VASSERT_EQ("3", "Attached message", hdr->Subject()->getValue <vmime::text>()->generate());
 		VASSERT_EQ("4", "Attached message body", extractBodyContents(amsgOut));
+
+		// A message/rfc822 part cannot be encoded: it is declared as 7-bit
+		// as it only contains 7-bit data (RFC 2046, section 5.2.1)
+		VASSERT_EQ("5", "7bit", attPart->getBody()->getEncoding().generate());
+	}
+
+	// A message/rfc822 part which contains 8-bit data is declared as 8-bit
+	// (RFC 2046, section 5.2.1)
+	void testAddAttachmentMessage8bit() {
+
+		const vmime::string data =
+"Subject: Test message\r\n"
+"Content-Type: text/plain\r\n"
+"\r\n"
+"Message body";
+
+		vmime::shared_ptr <vmime::message> msg = vmime::make_shared <vmime::message>();
+		msg->parse(data);
+
+		const vmime::string attData =
+"Subject: Attached message\r\n"
+"Content-Type: text/plain; charset=utf-8\r\n"
+"Content-Transfer-Encoding: 8bit\r\n"
+"\r\n"
+"Gr\xc3\xbc\xc3\x9f" "e";
+
+		vmime::shared_ptr <vmime::message> amsg = vmime::make_shared <vmime::message>();
+		amsg->parse(attData);
+
+		vmime::attachmentHelper::addAttachment(msg, amsg);
+
+		VASSERT_EQ("1", "multipart/mixed[text/plain,message/rfc822]", getStructure(msg));
+
+		vmime::shared_ptr <const vmime::bodyPart> attPart = msg->getBody()->getPartAt(1);
+
+		VASSERT_EQ("2", "8bit", attPart->getBody()->getEncoding().generate());
+		VASSERT_EQ(
+			"3", "8bit",
+			attPart->getHeader()->findField(vmime::fields::CONTENT_TRANSFER_ENCODING)->getValue()->generate()
+		);
+	}
+
+	// A message/rfc822 part which contains binary data is declared as binary
+	// (RFC 2046, section 5.2.1), and its data is not altered
+	void testAddAttachmentMessageBinary() {
+
+		const vmime::string data =
+"Subject: Test message\r\n"
+"Content-Type: text/plain\r\n"
+"\r\n"
+"Message body";
+
+		// Binary part (NUL, LF alone)
+		const vmime::string binaryData("A\0B\nC", 5);
+
+		const vmime::string attData =
+"Subject: Attached message\r\n"
+"Content-Type: application/octet-stream\r\n"
+"Content-Transfer-Encoding: binary\r\n"
+"\r\n" + binaryData;
+
+		vmime::shared_ptr <vmime::message> msg = vmime::make_shared <vmime::message>();
+		msg->parse(data);
+
+		vmime::shared_ptr <vmime::message> amsg = vmime::make_shared <vmime::message>();
+		amsg->parse(attData);
+
+		vmime::attachmentHelper::addAttachment(msg, amsg);
+
+		VASSERT_EQ("1.1", "binary", msg->getBody()->getPartAt(1)->getBody()->getEncoding().generate());
+		VASSERT("1.2", msg->generate().find("\r\n\r\n" + binaryData + "\r\n--") != vmime::string::npos);
+
+		// Line longer than 998 octets
+		const vmime::string longLineData =
+"Subject: Attached message\r\n"
+"Content-Type: text/plain\r\n"
+"\r\n" + vmime::string(999, 'x') + "\r\n";
+
+		vmime::shared_ptr <vmime::message> msg2 = vmime::make_shared <vmime::message>();
+		msg2->parse(data);
+
+		vmime::shared_ptr <vmime::message> amsg2 = vmime::make_shared <vmime::message>();
+		amsg2->parse(longLineData);
+
+		vmime::attachmentHelper::addAttachment(msg2, amsg2);
+
+		VASSERT_EQ("2.1", "binary", msg2->getBody()->getPartAt(1)->getBody()->getEncoding().generate());
 	}
 
 	void testGetBodyPartAttachmentMessage() {

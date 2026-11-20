@@ -31,6 +31,7 @@
 #include "vmime/platforms/posix/posixFile.hpp"
 
 #include "vmime/exception.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <unistd.h>
 #include <string.h>
@@ -60,7 +61,7 @@ shared_ptr <utility::childProcess> posixChildProcessFactory::create(const utilit
 // getPosixSignalMessage
 // Returns the name of a POSIX signal.
 
-static const string getPosixSignalMessage(const int num) {
+static string getPosixSignalMessage(const int num) {
 
 	switch (num) {
 		case SIGHUP:  return "SIGHUP";
@@ -91,7 +92,7 @@ static const string getPosixSignalMessage(const int num) {
 // getPosixErrorMessage
 // Returns a message corresponding to an error code.
 
-static const string getPosixErrorMessage(const int num) {
+static string getPosixErrorMessage(const int num) {
 
 #ifdef strerror_r
 	char res[256];
@@ -390,8 +391,7 @@ void posixChildProcess::waitForFinish() {
 
 		} else {
 
-			std::ostringstream oss;
-			oss.imbue(std::locale::classic());
+			utility::details::classicOStringStream oss;
 
 			oss << "Process exited with status " << WEXITSTATUS(wstat);
 

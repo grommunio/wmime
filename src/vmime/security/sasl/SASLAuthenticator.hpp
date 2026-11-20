@@ -28,7 +28,7 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/types.hpp"
@@ -64,7 +64,7 @@ public:
 	  * @return ordered list of mechanism to use among the available
 	  * mechanisms (from the first to try to the last)
 	  */
-	virtual const std::vector <shared_ptr <SASLMechanism> > getAcceptableMechanisms(
+	virtual std::vector <shared_ptr <SASLMechanism> > getAcceptableMechanisms(
 		const std::vector <shared_ptr <SASLMechanism> >& available,
 		const shared_ptr <SASLMechanism>& suggested
 	) const = 0;
@@ -91,6 +91,6 @@ public:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES
 
 #endif // VMIME_SECURITY_SASL_SASLAUTHENTICATOR_HPP_INCLUDED

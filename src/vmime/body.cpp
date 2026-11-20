@@ -31,15 +31,53 @@
 
 #include "vmime/utility/seekableInputStreamRegionAdapter.hpp"
 #include "vmime/utility/outputStreamAdapter.hpp"
+#include "vmime/utility/filteredStream.hpp"
 
 #include "vmime/parserHelpers.hpp"
 
 #include "vmime/emptyContentHandler.hpp"
 #include "vmime/stringContentHandler.hpp"
 #include "vmime/streamContentHandler.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
+
+
+namespace {
+
+	// Output stream which only counts the bytes written to it
+	class countingOutputStream : public utility::outputStream {
+
+	public:
+
+		countingOutputStream()
+			: m_count(0) {
+
+		}
+
+		size_t getCount() const {
+
+			return m_count;
+		}
+
+		void flush() {
+
+		}
+
+	protected:
+
+		void writeImpl(const byte_t* const /* data */, const size_t count) {
+
+			m_count += count;
+		}
+
+	private:
+
+		size_t m_count;
+	};
+
+}
 
 
 body::body()
@@ -54,10 +92,23 @@ body::~body() {
 }
 
 
+// Returns the number of parts above the specified part
+static size_t getPartDepth(const bodyPart* part) {
+
+	size_t depth = 0;
+
+	for (const bodyPart* p = part->getParentPart() ; p ; p = p->getParentPart()) {
+		++depth;
+	}
+
+	return depth;
+}
+
+
 /*
  * boundaryStart: will become the index for "\r\n--marker"
  * boundaryEnd:   will become the index after "marker", i.e. index for potential trailing "--", "\r\n", etc.
- * return value:  index for "marker"
+ * return value:  index for "marker", or npos if not found before 'end'
  */
 // static
 size_t body::findNextBoundaryPosition(
@@ -69,56 +120,45 @@ size_t body::findNextBoundaryPosition(
 	size_t* boundaryEnd
 ) {
 
-	size_t pos = position;
+	// Boundary should be at the beginning of a line, and should start
+	// with "--". The search starts one byte before 'position', as the
+	// line break may be just before it (eg. at the end of the headers).
+	const string delimiter = "\n--" + boundary;
 
-	for (; pos != npos && pos < end; ++pos) {
+	for (size_t pos = (position == 0 ? 0 : position - 1) ; pos < end ; ++pos) {
 
-		pos = parser->findNext(boundary, pos);
+		pos = parser->findNext(delimiter, pos, end);
 
 		if (pos == npos) {
 			break;  // not found
 		}
 
-		if (pos == 0) {
-			// Boundary is a prefix of another, continue the search (same for the other "continue"s)
-			continue;
-		}
-
-		// Ensure the bytes before boundary are "[LF]--": boundary should be
-		// at the beginning of a line, and should start with "--"
-		if (pos < 3) {
-			continue;
-		}
-		parser->seek(pos - 3);
-		if (!parser->matchBytes("\n--", 3)) {
-			continue;
-		}
-
-		parser->seek(pos + boundary.length());
+		parser->seek(pos + delimiter.length());
 
 		const byte_t next = parser->peekByte();
 
-		// Boundary should be followed by a new line or a dash
+		// Boundary should be followed by a new line or a dash; if not, it is
+		// a prefix of another boundary: continue the search
 		if (!isspace(next) && next != '-') {
 			continue;
 		}
 
 		// Get rid of the "[CR]" just before "[LF]--", if any
 		size_t backwards = 0;
-		if (pos >= 4) {
-			parser->seek(pos - 4);
+		if (pos >= 1) {
+			parser->seek(pos - 1);
 			if (parser->peekByte() == '\r') {
 				++backwards;
 			}
 		}
 
-		*boundaryStart = pos - backwards - 3;
-		*boundaryEnd = pos + boundary.length();
+		*boundaryStart = pos - backwards;
+		*boundaryEnd = pos + delimiter.length();
 
-		return pos;
+		return pos + 3;
 	}
 
-	return pos;
+	return npos;
 }
 
 
@@ -158,7 +198,10 @@ void body::parseImpl(
 
 		const mediaType type = *ctf->getValue <mediaType>();
 
-		if (type.getType() == mediaTypes::MULTIPART) {
+		// Do not split parts nested too deeply, as each level adds to the stack
+		// and scans the contents of its sub-parts: keep their contents as is
+		if (type.getType() == mediaTypes::MULTIPART &&
+		    getPartDepth(m_part) < ctx.getMaxNestingDepth()) {
 
 			isMultipart = true;
 
@@ -180,7 +223,7 @@ void body::parseImpl(
 
 				} else {
 
-					pos = parser->findNext("\n--", position);
+					pos = parser->findNext("\n--", position, end);
 
 					if ((pos != npos) && (pos + 3 < end)) {
 						pos += 3;  // skip \n--
@@ -323,16 +366,19 @@ void body::parseImpl(
 
 			partStart = boundaryEnd;
 
-			// Find the next boundary
-			pos = findNextBoundaryPosition(
-				parser, boundary, boundaryEnd, end, &boundaryStart, &boundaryEnd
-			);
+			// Find the next boundary (none after the last one, which would scan the epilog)
+			if (!lastPart) {
+				pos = findNextBoundaryPosition(
+					parser, boundary, boundaryEnd, end, &boundaryStart, &boundaryEnd
+				);
+			}
 		}
 
 		m_contents = make_shared <emptyContentHandler>();
 
-		// Last part was not found: recover from missing boundary
-		if (!lastPart && pos == npos) {
+		// Last part was not found: recover from missing boundary (but do not
+		// create an empty part when the last boundary is at the very end)
+		if (!lastPart && pos == npos && partStart < end) {
 
 			shared_ptr <bodyPart> part = m_part->createChildPart();
 
@@ -519,7 +565,24 @@ void body::generateImpl(
 		shared_ptr <contentHandler> contents = m_contents->clone();
 		contents->setContentTypeHint(getContentType());
 
-		contents->generate(os, getEncoding(), ctx.getMaxLineLength());
+		const encoding enc = getEncoding();
+
+		// Lines end with CRLF (RFC 5322, section 2.3, and RFC 2045, sections
+		// 2.7 and 2.8), even if the contents use another convention (eg. LF
+		// only, as stored on Unix), except in binary data, in which any
+		// sequence of octets is allowed (RFC 2045, section 2.9)
+		if (enc == encoding(encodingTypes::BINARY)) {
+
+			contents->generate(os, enc, ctx.getMaxLineLength());
+
+		} else {
+
+			// Not flushed: the filter does not buffer data, and flushing the
+			// output stream may end it (eg. SMTP CHUNKING)
+			utility::LFToCRLFFilteredOutputStream crlfStream(os);
+
+			contents->generate(crlfStream, enc, ctx.getMaxLineLength());
+		}
 	}
 }
 
@@ -542,7 +605,7 @@ size_t body::getGeneratedSize(const generationContext& ctx) {
 
 		if (!prologText.isEmpty()) {
 
-			std::ostringstream oss;
+			utility::details::classicOStringStream oss;
 			utility::outputStreamAdapter osa(oss);
 
 			prologText.encodeAndFold(
@@ -557,7 +620,7 @@ size_t body::getGeneratedSize(const generationContext& ctx) {
 
 		if (!epilogText.isEmpty()) {
 
-			std::ostringstream oss;
+			utility::details::classicOStringStream oss;
 			utility::outputStreamAdapter osa(oss);
 
 			epilogText.encodeAndFold(
@@ -573,7 +636,27 @@ size_t body::getGeneratedSize(const generationContext& ctx) {
 	// Simple body
 	} else {
 
-		if (getEncoding() == m_contents->getEncoding()) {
+		const encoding enc = getEncoding();
+
+		// The contents are copied as is, except for their line endings, which
+		// are converted to CRLF (see generateImpl()): if possible, compute the
+		// actual size, as the declared size of a message should not be lower
+		// than its actual size (RFC 1870, section 6)
+		const bool copiedAsIs =
+			enc == m_contents->getEncoding() ||
+			(!m_contents->isEncoded() &&
+			 (enc == encoding(encodingTypes::SEVEN_BIT) || enc == encoding(encodingTypes::EIGHT_BIT)));
+
+		if (copiedAsIs && enc != encoding(encodingTypes::BINARY) && m_contents->isBuffered()) {
+
+			countingOutputStream counter;
+			utility::LFToCRLFFilteredOutputStream crlfStream(counter);
+
+			m_contents->extractRaw(crlfStream);
+
+			return counter.getCount();
+
+		} else if (enc == m_contents->getEncoding()) {
 
 			// No re-encoding has to be performed
 			return m_contents->getLength();
@@ -582,6 +665,9 @@ size_t body::getGeneratedSize(const generationContext& ctx) {
 
 			shared_ptr <utility::encoder::encoder> srcEncoder = m_contents->getEncoding().getEncoder();
 			shared_ptr <utility::encoder::encoder> dstEncoder = getEncoding().getEncoder();
+
+			// Lines are cut as when generating the contents
+			dstEncoder->getProperties()["maxlinelength"] = ctx.getMaxLineLength();
 
 			return dstEncoder->getEncodedSize(srcEncoder->getDecodedSize(m_contents->getLength()));
 		}
@@ -605,7 +691,7 @@ size_t body::getGeneratedSize(const generationContext& ctx) {
                  / "," / "-" / "." / "/" / ":" / "=" / "?"
 */
 
-const string body::generateRandomBoundaryString() {
+string body::generateRandomBoundaryString() {
 
 	// 64 characters that can be _safely_ used in a boundary string
 	static const char bchars[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-+";
@@ -693,7 +779,7 @@ void body::setContentType(const mediaType& type) {
 }
 
 
-const mediaType body::getContentType() const {
+mediaType body::getContentType() const {
 
 	shared_ptr <const contentTypeField> ctf =
 		m_part->getHeader()->findField <contentTypeField>(fields::CONTENT_TYPE);
@@ -729,7 +815,7 @@ void body::setCharset(const charset& chset) {
 }
 
 
-const charset body::getCharset() const {
+charset body::getCharset() const {
 
 	const shared_ptr <const contentTypeField> ctf =
 		m_part->getHeader()->findField <contentTypeField>(fields::CONTENT_TYPE);
@@ -760,7 +846,7 @@ void body::setEncoding(const encoding& enc) {
 }
 
 
-const encoding body::getEncoding() const {
+encoding body::getEncoding() const {
 
 	shared_ptr <const headerField> cef =
 		m_part->getHeader()->findField(fields::CONTENT_TRANSFER_ENCODING);
@@ -863,7 +949,7 @@ void body::setEpilogText(const string& epilogText) {
 }
 
 
-const shared_ptr <const contentHandler> body::getContents() const {
+shared_ptr <const contentHandler> body::getContents() const {
 
 	return m_contents;
 }
@@ -1075,13 +1161,13 @@ shared_ptr <bodyPart> body::getPartAt(const size_t pos) {
 }
 
 
-const shared_ptr <const bodyPart> body::getPartAt(const size_t pos) const {
+shared_ptr <const bodyPart> body::getPartAt(const size_t pos) const {
 
 	return m_parts[pos];
 }
 
 
-const std::vector <shared_ptr <const bodyPart> > body::getPartList() const {
+std::vector <shared_ptr <const bodyPart> > body::getPartList() const {
 
 	std::vector <shared_ptr <const bodyPart> > list;
 
@@ -1097,13 +1183,13 @@ const std::vector <shared_ptr <const bodyPart> > body::getPartList() const {
 }
 
 
-const std::vector <shared_ptr <bodyPart> > body::getPartList() {
+std::vector <shared_ptr <bodyPart> > body::getPartList() {
 
 	return m_parts;
 }
 
 
-const std::vector <shared_ptr <component> > body::getChildComponents() {
+std::vector <shared_ptr <component> > body::getChildComponents() {
 
 	std::vector <shared_ptr <component> > list;
 

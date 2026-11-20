@@ -41,7 +41,7 @@ POP3ServiceInfos::POP3ServiceInfos(const bool pop3s)
 }
 
 
-const string POP3ServiceInfos::getPropertyPrefix() const {
+string POP3ServiceInfos::getPropertyPrefix() const {
 
 	if (m_pop3s) {
 		return "store.pop3s.";
@@ -57,14 +57,13 @@ const POP3ServiceInfos::props& POP3ServiceInfos::getProperties() const {
 		// POP3-specific options
 		property("options.apop", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.apop.fallback", serviceInfos::property::TYPE_BOOLEAN, "true"),
-#if VMIME_HAVE_SASL_SUPPORT
 		property("options.sasl", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.sasl.fallback", serviceInfos::property::TYPE_BOOLEAN, "true"),
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 		// Common properties
 		property(serviceInfos::property::AUTH_USERNAME, serviceInfos::property::FLAG_REQUIRED),
 		property(serviceInfos::property::AUTH_PASSWORD, serviceInfos::property::FLAG_REQUIRED),
+		property(serviceInfos::property::AUTH_ALLOW_PLAINTEXT),
 
 #if VMIME_HAVE_TLS_SUPPORT
 		property(serviceInfos::property::CONNECTION_TLS),
@@ -80,14 +79,13 @@ const POP3ServiceInfos::props& POP3ServiceInfos::getProperties() const {
 		// POP3-specific options
 		property("options.apop", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.apop.fallback", serviceInfos::property::TYPE_BOOLEAN, "true"),
-#if VMIME_HAVE_SASL_SUPPORT
 		property("options.sasl", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.sasl.fallback", serviceInfos::property::TYPE_BOOLEAN, "true"),
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 		// Common properties
 		property(serviceInfos::property::AUTH_USERNAME, serviceInfos::property::FLAG_REQUIRED),
 		property(serviceInfos::property::AUTH_PASSWORD, serviceInfos::property::FLAG_REQUIRED),
+		property(serviceInfos::property::AUTH_ALLOW_PLAINTEXT),
 
 #if VMIME_HAVE_TLS_SUPPORT
 		property(serviceInfos::property::CONNECTION_TLS),
@@ -102,7 +100,7 @@ const POP3ServiceInfos::props& POP3ServiceInfos::getProperties() const {
 }
 
 
-const std::vector <serviceInfos::property> POP3ServiceInfos::getAvailableProperties() const {
+std::vector <serviceInfos::property> POP3ServiceInfos::getAvailableProperties() const {
 
 	std::vector <property> list;
 	const props& p = getProperties();
@@ -110,14 +108,16 @@ const std::vector <serviceInfos::property> POP3ServiceInfos::getAvailablePropert
 	// POP3-specific options
 	list.push_back(p.PROPERTY_OPTIONS_APOP);
 	list.push_back(p.PROPERTY_OPTIONS_APOP_FALLBACK);
-#if VMIME_HAVE_SASL_SUPPORT
 	list.push_back(p.PROPERTY_OPTIONS_SASL);
 	list.push_back(p.PROPERTY_OPTIONS_SASL_FALLBACK);
-#endif // VMIME_HAVE_SASL_SUPPORT
 
 	// Common properties
 	list.push_back(p.PROPERTY_AUTH_USERNAME);
 	list.push_back(p.PROPERTY_AUTH_PASSWORD);
+
+	if (!m_pop3s) {
+		list.push_back(p.PROPERTY_AUTH_ALLOW_PLAINTEXT);
+	}
 
 #if VMIME_HAVE_TLS_SUPPORT
 	if (!m_pop3s) {

@@ -34,6 +34,7 @@
 #include "vmime/platform.hpp"
 
 #include "vmime/exception.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -68,7 +69,7 @@ bool maildirUtils::isMessageFile(const utility::file& file) {
 // characters when reading file names.
 
 
-const utility::file::path::component maildirUtils::extractId(
+utility::file::path::component maildirUtils::extractId(
 	const utility::file::path::component& filename
 ) {
 
@@ -115,7 +116,7 @@ int maildirUtils::extractFlags(const utility::file::path::component& comp) {
 }
 
 
-const utility::file::path::component maildirUtils::buildFlags(const int flags) {
+utility::file::path::component maildirUtils::buildFlags(const int flags) {
 
 	string str;
 	str.reserve(8);
@@ -133,7 +134,7 @@ const utility::file::path::component maildirUtils::buildFlags(const int flags) {
 }
 
 
-const utility::file::path::component maildirUtils::buildFilename(
+utility::file::path::component maildirUtils::buildFilename(
 	const utility::file::path::component& id,
 	const int flags
 ) {
@@ -146,7 +147,7 @@ const utility::file::path::component maildirUtils::buildFilename(
 }
 
 
-const utility::file::path::component maildirUtils::buildFilename(
+utility::file::path::component maildirUtils::buildFilename(
 	const utility::file::path::component& id,
 	const utility::file::path::component& flags
 ) {
@@ -161,10 +162,9 @@ const utility::file::path::component maildirUtils::buildFilename(
 }
 
 
-const utility::file::path::component maildirUtils::generateId() {
+utility::file::path::component maildirUtils::generateId() {
 
-	std::ostringstream oss;
-	oss.imbue(std::locale::classic());
+	utility::details::classicOStringStream oss;
 
 	oss << utility::random::getTime();
 	oss << ".";
@@ -246,7 +246,7 @@ private:
 
 
 // static
-const std::vector <size_t> maildirUtils::messageSetToNumberList(
+std::vector <size_t> maildirUtils::messageSetToNumberList(
 	const messageSet& msgs,
 	const size_t msgCount
 ) {

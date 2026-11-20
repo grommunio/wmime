@@ -37,7 +37,7 @@ typedef vmime::net::folder::path fpath;
 typedef vmime::net::folder::path::component fpathc;
 
 
-const fpath operator/(const fpath& path, const std::string& c) {
+fpath operator/(const fpath& path, const std::string& c) {
 
 	return path / fpathc(c);
 }
@@ -157,6 +157,9 @@ VMIME_TEST_SUITE_BEGIN(maildirStoreTest)
 
 		VMIME_TEST(testListMessages_KMail)
 		VMIME_TEST(testListMessages_Courier)
+
+		VMIME_TEST(testFetchHeader)
+		VMIME_TEST(testFindAttachments)
 
 		VMIME_TEST(testRenameFolder_KMail)
 		VMIME_TEST(testRenameFolder_Courier)
@@ -318,6 +321,124 @@ public:
 		msg->extract(os);
 
 		VASSERT_EQ("Message contents", TEST_MESSAGE_1, oss.str());
+
+		folder->close(false);
+
+		destroyMaildir();
+	}
+
+
+	void testFetchHeader() {
+
+		// The empty line which ends the header straddles the 1 KiB blocks
+		// in which the message file is read
+		const vmime::string message =
+			"From: <test@vmime.org>\r\n"
+			"X-Pad: " + vmime::string(968, 'x') + "\r\n"
+			"Subject: Large header\r\n"
+			"\r\n"
+			"Body-Field: not a header\r\n"
+			"\r\n"
+			"Hello, world!";
+
+		VASSERT_EQ("Separator position", 1022, message.find("\r\n\r\n"));
+
+		const vmime::string files[] = {
+			"/Folder/cur/1043236113.351.EmqD" TEST_FLAGS_DELIMITER "S", message,
+			"*"  // end
+		};
+
+		createMaildir(TEST_MAILDIR_KMAIL, files);
+
+		vmime::shared_ptr <vmime::net::store> store = createAndConnectStore();
+		vmime::shared_ptr <vmime::net::folder> folder = store->getFolder(fpath() / "Folder");
+
+		folder->open(vmime::net::folder::MODE_READ_ONLY);
+
+		vmime::shared_ptr <vmime::net::message> msg = folder->getMessage(1);
+
+		folder->fetchMessage(msg, vmime::net::fetchAttributes::FULL_HEADER);
+
+		VASSERT_EQ("Field count", 3, msg->getHeader()->getFieldCount());
+		VASSERT_EQ("Last field", "Subject", msg->getHeader()->getFieldAt(2)->getName());
+
+		vmime::shared_ptr <vmime::message> parsedMsg = msg->getParsedMessage();
+
+		std::ostringstream oss;
+		vmime::utility::outputStreamAdapter os(oss);
+		parsedMsg->getBody()->getContents()->extract(os);
+
+		VASSERT_EQ("Parsed field count", 3, parsedMsg->getHeader()->getFieldCount());
+		VASSERT_EQ("Parsed body", "Body-Field: not a header\r\n\r\nHello, world!", oss.str());
+
+		folder->close(false);
+
+		destroyMaildir();
+	}
+
+	void testFindAttachments() {
+
+		const vmime::string message =
+			"From: <test@vmime.org>\r\n"
+			"Subject: Attachments\r\n"
+			"MIME-Version: 1.0\r\n"
+			"Content-Type: multipart/mixed; boundary=\"B\"\r\n"
+			"\r\n"
+			"--B\r\n"
+			"Content-Type: text/plain; charset=us-ascii\r\n"
+			"\r\n"
+			"Hello\r\n"
+			"--B\r\n"
+			"Content-Type: application/pdf; name=\"type.pdf\"\r\n"
+			"Content-Disposition: attachment; filename*=UTF-8''%C3%A9t%C3%A9.pdf\r\n"
+			"Content-Transfer-Encoding: base64\r\n"
+			"\r\n"
+			"SGVsbG8=\r\n"
+			"--B\r\n"
+			"Content-Type: image/png; name=\"logo.png\"\r\n"
+			"Content-Disposition: inline; filename=\"logo.png\"\r\n"
+			"Content-ID: <logo@vmime.org>\r\n"
+			"Content-Transfer-Encoding: base64\r\n"
+			"\r\n"
+			"SGVsbG8=\r\n"
+			"--B--\r\n";
+
+		const vmime::string files[] = {
+			"/Folder/cur/1043236113.351.EmqD" TEST_FLAGS_DELIMITER "S", message,
+			"*"  // end
+		};
+
+		createMaildir(TEST_MAILDIR_KMAIL, files);
+
+		vmime::shared_ptr <vmime::net::store> store = createAndConnectStore();
+		vmime::shared_ptr <vmime::net::folder> folder = store->getFolder(fpath() / "Folder");
+
+		folder->open(vmime::net::folder::MODE_READ_ONLY);
+
+		vmime::shared_ptr <vmime::net::message> msg = folder->getMessage(1);
+
+		folder->fetchMessage(msg, vmime::net::fetchAttributes::STRUCTURE);
+
+		vmime::shared_ptr <const vmime::net::messagePart> root = msg->getStructure()->getPartAt(0);
+
+		VASSERT_FALSE("Root", root->isAttachment());
+
+		VASSERT_FALSE("Part 1", root->getPartAt(0)->isAttachment());
+		VASSERT_EQ("Part 1 name", "", root->getPartAt(0)->getName().getBuffer());
+
+		VASSERT_TRUE("Part 2", root->getPartAt(1)->isAttachment());
+		VASSERT_EQ("Part 2 name", vmime::word("\xc3\xa9t\xc3\xa9.pdf", vmime::charset(vmime::charsets::UTF_8)),
+			root->getPartAt(1)->getName());
+
+		VASSERT_FALSE("Part 3", root->getPartAt(2)->isAttachment());
+		VASSERT_TRUE("Part 3 (inline objects)", root->getPartAt(2)->isAttachment(vmime::attachmentHelper::INLINE_OBJECTS));
+		VASSERT_EQ("Part 3 name", "logo.png", root->getPartAt(2)->getName().getBuffer());
+
+		const std::vector <vmime::shared_ptr <vmime::net::messagePart> > atts =
+			msg->getStructure()->findAttachments();
+
+		VASSERT_EQ("Count", 1, atts.size());
+		VASSERT_EQ("Attachment", 1, atts[0]->getNumber());
 
 		folder->close(false);
 
@@ -492,7 +613,7 @@ private:
 		return store;
 	}
 
-	const vmime::shared_ptr <vmime::net::folder> findFolder(
+	vmime::shared_ptr <vmime::net::folder> findFolder(
 		const std::vector <vmime::shared_ptr <vmime::net::folder> >& folders,
 		const vmime::net::folder::path& path
 	) {
@@ -507,7 +628,7 @@ private:
 		return vmime::null;
 	}
 
-	const vmime::utility::url getStoreURL() {
+	vmime::utility::url getStoreURL() {
 
 		vmime::shared_ptr <vmime::utility::fileSystemFactory> fsf =
 			vmime::platform::getHandler()->getFileSystemFactory();

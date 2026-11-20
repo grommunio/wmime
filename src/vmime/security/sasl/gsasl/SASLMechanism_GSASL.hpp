@@ -21,17 +21,19 @@
 // the GNU General Public License cover the whole combination.
 //
 
-#ifndef VMIME_SECURITY_SASL_BUILTINSASLMECHANISM_HPP_INCLUDED
-#define VMIME_SECURITY_SASL_BUILTINSASLMECHANISM_HPP_INCLUDED
+#ifndef VMIME_SECURITY_SASL_SASLMECHANISM_GSASL_HPP_INCLUDED
+#define VMIME_SECURITY_SASL_SASLMECHANISM_GSASL_HPP_INCLUDED
 
 
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_GSASL
 
 
 #include "vmime/security/sasl/SASLMechanism.hpp"
+
+#include <gsasl.h>
 
 
 namespace vmime {
@@ -42,18 +44,43 @@ namespace sasl {
 class SASLContext;
 
 
-/** A built-in authentication mechanism that relies on
-  * the GNU SASL library.
+/** An authentication mechanism provided by the GNU SASL library.
   */
-class VMIME_EXPORT builtinSASLMechanism : public SASLMechanism {
+class SASLMechanism_GSASL : public SASLMechanism {
 
 public:
 
-	builtinSASLMechanism(const shared_ptr <SASLContext>& ctx, const string& name);
-	~builtinSASLMechanism();
+	SASLMechanism_GSASL(const shared_ptr <SASLContext>& ctx, const string& name);
+	~SASLMechanism_GSASL();
 
 
-	const string getName() const;
+	/** Test whether an authentication mechanism is provided by
+	  * the GNU SASL library.
+	  *
+	  * @param name mechanism name
+	  * @return true if the mechanism is provided by the GNU SASL
+	  * library, or false otherwise
+	  */
+	static bool isMechanismSupported(const string& name);
+
+	/** Return the list of the mechanisms provided by the GNU SASL
+	  * library.
+	  *
+	  * @return list of mechanism names
+	  */
+	static std::vector <string> getSupportedMechanisms();
+
+	/** Test whether the mechanisms provided by the GNU SASL library
+	  * can use a channel binding type.
+	  *
+	  * @param type channel binding type, as registered by IANA
+	  * @return true if the channel binding type is supported,
+	  * or false otherwise
+	  */
+	static bool isChannelBindingTypeSupported(const string& type);
+
+
+	string getName() const;
 
 	bool step(
 		const shared_ptr <SASLSession>& sess,
@@ -65,6 +92,8 @@ public:
 	bool isComplete() const;
 
 	bool hasInitialResponse() const;
+
+	bool isPlaintext() const;
 
 	void encode(
 		const shared_ptr <SASLSession>& sess,
@@ -84,6 +113,15 @@ public:
 
 private:
 
+	SASLMechanism_GSASL(const SASLMechanism_GSASL&);
+	SASLMechanism_GSASL& operator=(const SASLMechanism_GSASL&);
+
+
+	static string getErrorMessage(const string& fname, const int code);
+
+	static int gsaslCallback(Gsasl* ctx, Gsasl_session* sctx, Gsasl_property prop);
+
+
 	/** SASL context */
 	shared_ptr <SASLContext> m_context;
 
@@ -92,6 +130,13 @@ private:
 
 	/** Authentication process status. */
 	bool m_complete;
+
+	/** Whether the mechanism is client-first, and thus supports an initial response. */
+	bool m_initialResponse;
+
+	/** GNU SASL context and session */
+	Gsasl* m_gsaslContext;
+	Gsasl_session* m_gsaslSession;
 };
 
 
@@ -100,6 +145,6 @@ private:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_GSASL
 
-#endif // VMIME_SECURITY_SASL_BUILTINSASLMECHANISM_HPP_INCLUDED
+#endif // VMIME_SECURITY_SASL_SASLMECHANISM_GSASL_HPP_INCLUDED

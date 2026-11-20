@@ -28,7 +28,7 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/types.hpp"
@@ -77,8 +77,8 @@ public:
 
 	unsigned int getStatus() const;
 
-	const string getPeerName() const;
-	const string getPeerAddress() const;
+	string getPeerName() const;
+	string getPeerAddress() const;
 
 	shared_ptr <net::timeoutHandler> getTimeoutHandler();
 
@@ -103,6 +103,6 @@ private:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES
 
 #endif // VMIME_SECURITY_SASL_SASLSOCKET_HPP_INCLUDED

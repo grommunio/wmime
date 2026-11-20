@@ -26,6 +26,7 @@
 
 
 #include "vmime/utility/stream.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 #if defined(_MSC_VER) && (_MSC_VER <= 1200)  // VC++6
@@ -90,6 +91,7 @@ protected:
 
 VMIME_EXPORT outputStream& operator<<(outputStream& os, const string& str);
 VMIME_EXPORT outputStream& operator<<(outputStream& os, const byte_t c);
+VMIME_EXPORT outputStream& operator<<(outputStream& os, const char c);
 
 
 #if defined(_MSC_VER) && (_MSC_VER <= 1200)  // Internal compiler error with VC++6
@@ -115,8 +117,7 @@ outputStream& operator<<(outputStream& os, const char (&str)[N]) {
 template <typename T>
 outputStream& operator<<(outputStream& os, const T& t) {
 
-	std::ostringstream oss;
-	oss.imbue(std::locale::classic());  // no formatting
+	utility::details::classicOStringStream oss;
 
 	oss << t;
 

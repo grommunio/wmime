@@ -42,6 +42,7 @@
 #include "vmime/exception.hpp"
 
 #include "vmime/utility/outputStreamAdapter.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -112,7 +113,7 @@ int IMAPFolder::getMode() const {
 }
 
 
-const folderAttributes IMAPFolder::getAttributes() {
+folderAttributes IMAPFolder::getAttributes() {
 
 	// Root folder
 	if (m_path.isEmpty()) {
@@ -134,13 +135,13 @@ const folderAttributes IMAPFolder::getAttributes() {
 }
 
 
-const folder::path::component IMAPFolder::getName() const {
+folder::path::component IMAPFolder::getName() const {
 
 	return m_name;
 }
 
 
-const folder::path IMAPFolder::getFullPath() const {
+folder::path IMAPFolder::getFullPath() const {
 
 	return m_path;
 }
@@ -385,7 +386,7 @@ void IMAPFolder::create(const folderAttributes& attribs) {
 		}
 
 		// C: t2 CREATE MySpecial (USE (\Drafts \Sent))
-		std::ostringstream oss;
+		utility::details::classicOStringStream oss;
 		oss << "USE (";
 
 		switch (attribs.getSpecialUse()) {
@@ -1098,7 +1099,7 @@ messageSet IMAPFolder::addMessage(
 	utility::progressListener* progress
 ) {
 
-	std::ostringstream oss;
+	utility::details::classicOStringStream oss;
 	utility::outputStreamAdapter ossAdapter(oss);
 
 	msg->generate(ossAdapter);
@@ -1264,7 +1265,10 @@ void IMAPFolder::rename(const folder::path& newPath) {
 		throw exceptions::illegal_state("Store disconnected");
 	} else if (m_path.isEmpty() || newPath.isEmpty()) {
 		throw exceptions::illegal_operation("Cannot rename root folder");
-	} else if (m_path.getSize() == 1 && m_name.getBuffer() == "INBOX") {
+	} else if (m_path.getSize() == 1 &&
+	           utility::stringUtils::isStringEqualNoCase(m_name.getBuffer(), "inbox")) {
+
+		// INBOX is case-insensitive (RFC 9051, section 5.1)
 		throw exceptions::illegal_operation("Cannot rename 'INBOX' folder");
 	} else if (!store->isValidFolderName(newPath.getLastComponent())) {
 		throw exceptions::invalid_folder_name();
@@ -1465,8 +1469,7 @@ void IMAPFolder::noop() {
 std::vector <size_t> IMAPFolder::getMessageNumbersStartingOnUID(const message::uid& uid) {
 
 	// Send the request
-	std::ostringstream uidSearchKey;
-	uidSearchKey.imbue(std::locale::classic());
+	utility::details::classicOStringStream uidSearchKey;
 	uidSearchKey << "UID " << uid << ":*";
 
 	std::vector <string> searchKeys;
@@ -1614,7 +1617,7 @@ void IMAPFolder::processStatusUpdate(const IMAPParser::response* resp) {
 	std::vector <shared_ptr <events::event> > events;
 
 	shared_ptr <IMAPFolderStatus> oldStatus = vmime::clone(m_status);
-	int expungedMessageCount = 0;
+	size_t expungedMessageCount = 0;
 
 	// Process tagged response
 	if (resp->response_done &&
@@ -1683,6 +1686,8 @@ void IMAPFolder::processStatusUpdate(const IMAPParser::response* resp) {
 
 			} else if (msgData->type == IMAPParser::message_data::EXPUNGE) {
 
+				m_status->updateFromResponse(*msgData);
+
 				// A message has been expunged, renumber messages
 				for (std::vector <IMAPMessage*>::iterator jt =
 				     m_messages.begin() ; jt != m_messages.end() ; ++jt) {
@@ -1707,12 +1712,17 @@ void IMAPFolder::processStatusUpdate(const IMAPParser::response* resp) {
 		}
 	}
 
-	// New messages arrived
-	if (m_status->getMessageCount() > oldStatus->getMessageCount() - expungedMessageCount) {
+	// New messages arrived: they come after the messages which were
+	// already in the folder and have not been expunged
+	const size_t oldMessageCount = oldStatus->getMessageCount();
+	const size_t remainingMessageCount =
+		oldMessageCount > expungedMessageCount ? oldMessageCount - expungedMessageCount : 0;
+
+	if (m_status->getMessageCount() > remainingMessageCount) {
 
 		std::vector <size_t> newMessageNumbers;
 
-		for (size_t msgNumber = oldStatus->getMessageCount() - expungedMessageCount ;
+		for (size_t msgNumber = remainingMessageCount + 1 ;
 		     msgNumber <= m_status->getMessageCount() ; ++msgNumber) {
 
 			newMessageNumbers.push_back(msgNumber);

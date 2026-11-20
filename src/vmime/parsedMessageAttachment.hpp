@@ -42,13 +42,13 @@ public:
 
 	parsedMessageAttachment(const shared_ptr <message>& msg);
 
-	const mediaType getType() const;
-	const text getDescription() const;
-	const word getName() const;
+	mediaType getType() const;
+	text getDescription() const;
+	word getName() const;
 
-	const shared_ptr <const contentHandler> getData() const;
+	shared_ptr <const contentHandler> getData() const;
 
-	const encoding getEncoding() const;
+	encoding getEncoding() const;
 
 	shared_ptr <const object> getPart() const;
 
@@ -62,8 +62,17 @@ protected:
 
 private:
 
+	/** Return the type of the specified data: the name of the 7bit, 8bit
+	  * or binary encoding.
+	  *
+	  * @param data data
+	  * @return encoding name
+	  */
+	static const char* getDataType(const string& data);
+
 	shared_ptr <message> m_msg;
 	mutable shared_ptr <contentHandler> m_data;
+	mutable const char* m_dataType = encodingTypes::SEVEN_BIT;
 };
 
 

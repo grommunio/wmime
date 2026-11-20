@@ -41,7 +41,7 @@ IMAPServiceInfos::IMAPServiceInfos(const bool imaps)
 }
 
 
-const string IMAPServiceInfos::getPropertyPrefix() const {
+string IMAPServiceInfos::getPropertyPrefix() const {
 
 	if (m_imaps) {
 		return "store.imaps.";
@@ -55,15 +55,14 @@ const IMAPServiceInfos::props& IMAPServiceInfos::getProperties() const {
 
 	static props imapProps = {
 		// IMAP-specific options
-#if VMIME_HAVE_SASL_SUPPORT
 		property("options.sasl", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.sasl.fallback", serviceInfos::property::TYPE_BOOLEAN, "true"),
-#endif // VMIME_HAVE_SASL_SUPPORT
 		property("options.id", serviceInfos::property::TYPE_BOOLEAN, "false"),
 
 		// Common properties
 		property(serviceInfos::property::AUTH_USERNAME, serviceInfos::property::FLAG_REQUIRED),
 		property(serviceInfos::property::AUTH_PASSWORD, serviceInfos::property::FLAG_REQUIRED),
+		property(serviceInfos::property::AUTH_ALLOW_PLAINTEXT),
 
 #if VMIME_HAVE_TLS_SUPPORT
 		property(serviceInfos::property::CONNECTION_TLS),
@@ -76,15 +75,14 @@ const IMAPServiceInfos::props& IMAPServiceInfos::getProperties() const {
 
 	static props imapsProps = {
 		// IMAP-specific options
-#if VMIME_HAVE_SASL_SUPPORT
 		property("options.sasl", serviceInfos::property::TYPE_BOOLEAN, "true"),
 		property("options.sasl.fallback", serviceInfos::property::TYPE_BOOLEAN, "true"),
-#endif // VMIME_HAVE_SASL_SUPPORT
 		property("options.id", serviceInfos::property::TYPE_BOOLEAN, "false"),
 
 		// Common properties
 		property(serviceInfos::property::AUTH_USERNAME, serviceInfos::property::FLAG_REQUIRED),
 		property(serviceInfos::property::AUTH_PASSWORD, serviceInfos::property::FLAG_REQUIRED),
+		property(serviceInfos::property::AUTH_ALLOW_PLAINTEXT),
 
 #if VMIME_HAVE_TLS_SUPPORT
 		property(serviceInfos::property::CONNECTION_TLS),
@@ -99,21 +97,23 @@ const IMAPServiceInfos::props& IMAPServiceInfos::getProperties() const {
 }
 
 
-const std::vector <serviceInfos::property> IMAPServiceInfos::getAvailableProperties() const {
+std::vector <serviceInfos::property> IMAPServiceInfos::getAvailableProperties() const {
 
 	std::vector <property> list;
 	const props& p = getProperties();
 
 	// IMAP-specific options
-#if VMIME_HAVE_SASL_SUPPORT
 	list.push_back(p.PROPERTY_OPTIONS_SASL);
 	list.push_back(p.PROPERTY_OPTIONS_SASL_FALLBACK);
-#endif // VMIME_HAVE_SASL_SUPPORT
 	list.push_back(p.PROPERTY_OPTIONS_ID);
 
 	// Common properties
 	list.push_back(p.PROPERTY_AUTH_USERNAME);
 	list.push_back(p.PROPERTY_AUTH_PASSWORD);
+
+	if (!m_imaps) {
+		list.push_back(p.PROPERTY_AUTH_ALLOW_PLAINTEXT);
+	}
 
 #if VMIME_HAVE_TLS_SUPPORT
 	if (!m_imaps) {

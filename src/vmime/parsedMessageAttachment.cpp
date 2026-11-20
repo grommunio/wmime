@@ -27,6 +27,7 @@
 #include "vmime/contentDisposition.hpp"
 
 #include "vmime/utility/outputStreamAdapter.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -38,43 +39,86 @@ parsedMessageAttachment::parsedMessageAttachment(const shared_ptr <message>& msg
 }
 
 
-const mediaType parsedMessageAttachment::getType() const {
+mediaType parsedMessageAttachment::getType() const {
 
 	return mediaType(mediaTypes::MESSAGE, mediaTypes::MESSAGE_RFC822);
 }
 
 
-const text parsedMessageAttachment::getDescription() const {
+text parsedMessageAttachment::getDescription() const {
 
 	return text();
 }
 
 
-const word parsedMessageAttachment::getName() const {
+word parsedMessageAttachment::getName() const {
 
 	return word();
 }
 
 
-const shared_ptr <const contentHandler> parsedMessageAttachment::getData() const {
+shared_ptr <const contentHandler> parsedMessageAttachment::getData() const {
 
 	if (!m_data) {
 
-		std::ostringstream oss;
+		utility::details::classicOStringStream oss;
 		utility::outputStreamAdapter os(oss);
 
 		m_msg->generate(os);
 
-		m_data = make_shared <stringContentHandler>(oss.str());
+		const string data = oss.str();
+
+		m_data = make_shared <stringContentHandler>(data);
+		m_dataType = getDataType(data);
 	}
 
 	return m_data;
 }
 
 
-const encoding parsedMessageAttachment::getEncoding() const {
+// static
+const char* parsedMessageAttachment::getDataType(const string& data) {
 
-	return encoding(encodingTypes::EIGHT_BIT);  // not important
+	// 7bit and 8bit data have lines of 998 octets or less between CRLF, and
+	// no NUL; 7bit data has no octets greater than 127; binary data may have
+	// any sequence of octets (RFC 2045, sections 2.7 to 2.9)
+	bool eightBit = false;
+	size_t lineLength = 0;
+
+	for (size_t i = 0, n = data.length() ; i < n ; ++i) {
+
+		const unsigned char c = data[i];
+
+		if (c == '\r' && i + 1 < n && data[i + 1] == '\n') {
+
+			lineLength = 0;
+			++i;
+
+			continue;
+		}
+
+		// NUL, CR or LF alone, or a line which is too long
+		if (c == '\0' || c == '\r' || c == '\n' || ++lineLength > 998) {
+			return encodingTypes::BINARY;
+		}
+
+		if (c >= 128) {
+			eightBit = true;
+		}
+	}
+
+	return eightBit ? encodingTypes::EIGHT_BIT : encodingTypes::SEVEN_BIT;
+}
+
+
+encoding parsedMessageAttachment::getEncoding() const {
+
+	// The message cannot be encoded: the encoding of a message/rfc822
+	// part only tells whether it contains 8-bit or binary data (RFC 2046,
+	// section 5.2.1)
+	getData();
+
+	return encoding(m_dataType);
 }
 
 
@@ -108,6 +152,7 @@ void parsedMessageAttachment::generateIn(const shared_ptr <bodyPart>& parent) co
 
 	// Set contents
 	part->getBody()->setContents(getData());
+	part->getBody()->setEncoding(getEncoding());
 }
 
 

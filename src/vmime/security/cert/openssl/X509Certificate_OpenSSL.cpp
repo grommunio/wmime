@@ -39,6 +39,10 @@
 #include "vmime/utility/outputStreamByteArrayAdapter.hpp"
 
 #include "vmime/security/cert/certificateException.hpp"
+#include "vmime/security/cert/certificateExpiredException.hpp"
+#include "vmime/security/cert/certificateIssuerVerificationException.hpp"
+#include "vmime/security/cert/certificateNotTrustedException.hpp"
+#include "vmime/security/cert/certificateNotYetValidException.hpp"
 #include "vmime/security/cert/unsupportedCertificateTypeException.hpp"
 
 #include <openssl/x509.h>
@@ -321,7 +325,7 @@ err:
 }
 
 
-const byteArray X509Certificate_OpenSSL::getSerialNumber() const {
+byteArray X509Certificate_OpenSSL::getSerialNumber() const {
 
 	ASN1_INTEGER *serial = X509_get_serialNumber(m_data->cert);
 	BIGNUM *bnser = ASN1_INTEGER_to_BN(serial, NULL);
@@ -335,96 +339,190 @@ const byteArray X509Certificate_OpenSSL::getSerialNumber() const {
 }
 
 
-bool X509Certificate_OpenSSL::checkIssuer(const shared_ptr <const X509Certificate>& cert_) const {
+#ifndef VMIME_BUILDING_DOC
 
-	shared_ptr <const X509Certificate_OpenSSL> cert =
-		dynamicCast <const X509Certificate_OpenSSL>(cert_);
+// Resources used for verifying a certificate chain
+struct OpenSSLChainVerification {
 
-	// Get issuer for this cert
-	BIO *out;
-	unsigned char *issuer;
+	OpenSSLChainVerification()
+		: store(X509_STORE_new()),
+		  untrusted(sk_X509_new_null()),
+		  ctx(X509_STORE_CTX_new()),
+		  path(NULL) {
 
-	out = BIO_new(BIO_s_mem());
-	X509_NAME_print_ex(out, X509_get_issuer_name(m_data->cert), 0, XN_FLAG_RFC2253);
-	long n = BIO_get_mem_data(out, &issuer);
-	vmime::string thisIssuerName((char*)issuer, n);
-	BIO_free(out);
-
-	// Get subject of issuer
-	unsigned char *subject;
-	out = BIO_new(BIO_s_mem());
-	X509_NAME_print_ex(out, X509_get_subject_name(cert->m_data->cert), 0, XN_FLAG_RFC2253);
-	n = BIO_get_mem_data(out, &subject);
-	vmime::string subjOfIssuer((char*)subject, n);
-	BIO_free(out);
-
-	return subjOfIssuer == thisIssuerName;
-}
-
-
-bool X509Certificate_OpenSSL::verify(const shared_ptr <const X509Certificate>& caCert_) const {
-
-	shared_ptr <const X509Certificate_OpenSSL> caCert =
-		dynamicCast <const X509Certificate_OpenSSL>(caCert_);
-
-
-	bool verified = false;
-	bool error = true;
-
-	X509_STORE *store = X509_STORE_new();
-
-	if (store) {
-
-		X509_STORE_CTX *verifyCtx = X509_STORE_CTX_new();
-
-		if (verifyCtx) {
-
-			if (X509_STORE_add_cert(store, caCert->m_data->cert)) {
-
-				X509_STORE_CTX_init(verifyCtx, store, m_data->cert, NULL);
-
-				int ret = X509_verify_cert(verifyCtx);
-
-				if (ret == 1) {
-
-					verified = true;
-					error = false;
-
-				} else if (ret == 0) {
-
-					verified = false;
-					error = false;
-				}
-
-				//X509_verify_cert_error_string(vrfy_ctx->error)
-
-				X509_STORE_CTX_free(verifyCtx);
-			}
-		}
-
-		X509_STORE_free(store);
 	}
 
-	return verified && !error;
+	~OpenSSLChainVerification() {
+
+		if (path) {
+			sk_X509_pop_free(path, X509_free);
+		}
+
+		if (ctx) {
+			X509_STORE_CTX_free(ctx);
+		}
+
+		if (untrusted) {
+			sk_X509_free(untrusted);
+		}
+
+		if (store) {
+			X509_STORE_free(store);
+		}
+
+		// A failed verification leaves errors in the queue
+		ERR_clear_error();
+	}
+
+	X509_STORE* store;
+	STACK_OF(X509)* untrusted;
+	X509_STORE_CTX* ctx;
+	STACK_OF(X509)* path;
+};
+
+
+template <typename E>
+static void throwCertificateException(E ex, const shared_ptr <certificate>& cert) {
+
+	ex.setCertificate(cert);
+	throw ex;
 }
+
+#endif // VMIME_BUILDING_DOC
 
 
 // static
-bool X509Certificate_OpenSSL::cnMatch(const char* cnBuf, const char* host) {
+void X509Certificate::verifyChain(
+	const std::vector <shared_ptr <X509Certificate> >& chain,
+	const std::vector <shared_ptr <X509Certificate> >& rootCAs
+) {
 
-	// Right-to-left match, looking for a '*' wildcard
-	const bool hasWildcard = (strlen(cnBuf) > 1 && cnBuf[0] == '*' && cnBuf[1] == '.');
-	const char* cnBufReverseEndPtr = (cnBuf + (hasWildcard ? 2 : 0));
-	const char* hostPtr = host + strlen(host);
-	const char* cnPtr = cnBuf + strlen(cnBuf);
-
-	bool matches = true;
-
-	while (matches && --hostPtr >= host && --cnPtr >= cnBufReverseEndPtr) {
-		matches = (toupper(*hostPtr) == toupper(*cnPtr));
+	if (chain.empty()) {
+		throw certificateNotTrustedException();
 	}
 
-	return matches;
+	OpenSSLChainVerification verif;
+
+	if (!verif.store || !verif.untrusted || !verif.ctx) {
+		throw certificateNotTrustedException();
+	}
+
+	// Native certificates, to find the certificate on which a problem occurred
+	std::vector <std::pair <X509*, shared_ptr <X509Certificate> > > certs;
+
+	for (const shared_ptr <X509Certificate>& rootCA : rootCAs) {
+
+		X509* cert = dynamicCast <X509Certificate_OpenSSL>(rootCA)->m_data->cert;
+
+		// Fails if the certificate is already in the store, which is not a problem
+		X509_STORE_add_cert(verif.store, cert);
+
+		certs.push_back(std::make_pair(cert, rootCA));
+	}
+
+#ifdef X509_V_FLAG_PARTIAL_CHAIN
+	// The path can end with any trusted CA, even if it is not self-signed
+	// (RFC 5280, section 6.1.1 (d))
+	X509_STORE_set_flags(verif.store, X509_V_FLAG_PARTIAL_CHAIN);
+#endif
+
+	for (size_t i = 0 ; i < chain.size() ; ++i) {
+
+		X509* cert = dynamicCast <X509Certificate_OpenSSL>(chain[i])->m_data->cert;
+
+		if (i != 0) {
+			sk_X509_push(verif.untrusted, cert);
+		}
+
+		certs.push_back(std::make_pair(cert, chain[i]));
+	}
+
+	X509* serverCert = dynamicCast <X509Certificate_OpenSSL>(chain[0])->m_data->cert;
+
+	if (X509_STORE_CTX_init(verif.ctx, verif.store, serverCert, verif.untrusted) != 1) {
+		throw certificateNotTrustedException();
+	}
+
+	// The extended key usage of the server certificate, if any, must allow
+	// TLS server authentication (RFC 5280, section 4.2.1.12)
+	X509_STORE_CTX_set_purpose(verif.ctx, X509_PURPOSE_SSL_SERVER);
+
+	if (X509_verify_cert(verif.ctx) == 1) {
+		return;
+	}
+
+	const int error = X509_STORE_CTX_get_error(verif.ctx);
+	const int depth = X509_STORE_CTX_get_error_depth(verif.ctx);
+
+	X509* errorCert = X509_STORE_CTX_get_current_cert(verif.ctx);
+
+	// For these errors, OpenSSL reports the issuer: report the certificate
+	// which cannot be verified against it instead (as GnuTLS does)
+	if ((error == X509_V_ERR_INVALID_CA ||
+	     error == X509_V_ERR_KEYUSAGE_NO_CERTSIGN ||
+	     error == X509_V_ERR_PATH_LENGTH_EXCEEDED) && depth >= 1) {
+
+		verif.path = X509_STORE_CTX_get1_chain(verif.ctx);
+
+		if (verif.path && depth - 1 < sk_X509_num(verif.path)) {
+			errorCert = sk_X509_value(verif.path, depth - 1);
+		}
+	}
+
+	shared_ptr <X509Certificate> cert = chain[0];
+
+	if (errorCert) {
+
+		cert = null;
+
+		for (size_t i = 0 ; !cert && i < certs.size() ; ++i) {
+
+			if (certs[i].first == errorCert) {
+				cert = certs[i].second;
+			}
+		}
+
+		if (!cert) {
+			cert = X509Certificate_OpenSSL::importInternal(errorCert);
+		}
+	}
+
+	const string reason = X509_verify_cert_error_string(error);
+
+	switch (error) {
+
+		case X509_V_ERR_CERT_HAS_EXPIRED:
+
+			throwCertificateException(certificateExpiredException(), cert);
+			break;
+
+		case X509_V_ERR_CERT_NOT_YET_VALID:
+
+			throwCertificateException(certificateNotYetValidException(), cert);
+			break;
+
+		case X509_V_ERR_CERT_SIGNATURE_FAILURE:
+		case X509_V_ERR_UNABLE_TO_DECRYPT_CERT_SIGNATURE:
+		case X509_V_ERR_UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY:
+		case X509_V_ERR_INVALID_CA:
+		case X509_V_ERR_KEYUSAGE_NO_CERTSIGN:
+		case X509_V_ERR_PATH_LENGTH_EXCEEDED:
+		case X509_V_ERR_PERMITTED_VIOLATION:
+		case X509_V_ERR_EXCLUDED_VIOLATION:
+		case X509_V_ERR_SUBTREE_MINMAX:
+		case X509_V_ERR_UNSUPPORTED_CONSTRAINT_TYPE:
+		case X509_V_ERR_UNSUPPORTED_CONSTRAINT_SYNTAX:
+		case X509_V_ERR_UNSUPPORTED_NAME_SYNTAX:
+
+			throwCertificateException(certificateIssuerVerificationException(reason), cert);
+			break;
+
+		default:
+
+			// No path to a trusted CA, unsuitable purpose, etc.
+			throwCertificateException(certificateNotTrustedException(reason), cert);
+			break;
+	}
 }
 
 
@@ -441,67 +539,72 @@ bool X509Certificate_OpenSSL::verifyHostName(
 		return ipMatch == 1;
 	}
 
-	// First, check subject common name against hostname
-	char CNBuffer[1024];
-	CNBuffer[sizeof(CNBuffer) - 1] = '\0';
-
-	X509_NAME* xname = X509_get_subject_name(m_data->cert);
-
-	if (X509_NAME_get_text_by_NID(xname, NID_commonName, CNBuffer, sizeof(CNBuffer)) != -1) {
-
-		if (cnMatch(CNBuffer, hostname.c_str())) {
-			return true;
-		}
-
-		if (nonMatchingNames) {
-			nonMatchingNames->push_back(CNBuffer);
-		}
-	}
-
-	// Now, look in subject alternative names
-	bool verify = false;
+	// DNS names of the subject alternative names
+	std::vector <string> dnsNames;
 
 	STACK_OF(GENERAL_NAME)* altNames = static_cast <GENERAL_NAMES*>
 		(X509_get_ext_d2i(m_data->cert, NID_subject_alt_name, NULL, NULL));
 
-	if (altNames == NULL) {
-		return false;
-	}
+	if (altNames) {
 
-	// Check each name within the extension
-	for (int i = 0, n = sk_GENERAL_NAME_num(altNames) ; i < n ; ++i) {
+		for (int i = 0, n = sk_GENERAL_NAME_num(altNames) ; i < n ; ++i) {
 
-		const GENERAL_NAME* currentName = sk_GENERAL_NAME_value(altNames, i);
+			const GENERAL_NAME* currentName = sk_GENERAL_NAME_value(altNames, i);
 
-		if (currentName->type == GEN_DNS) {
+			if (currentName->type == GEN_DNS) {
 
-			// Current name is a DNS name, let's check it
-			const char *DNSName = (const char *) ASN1_STRING_get0_data(currentName->d.dNSName);
-
-			// Make sure there isn't an embedded NUL character in the DNS name
-			if (ASN1_STRING_length(currentName->d.dNSName) != strlen(DNSName)) {
-				// Malformed certificate
-				break;
-			}
-
-			if (cnMatch(DNSName, hostname.c_str())) {
-				verify = true;
-				break;
-			}
-
-			if (nonMatchingNames) {
-				nonMatchingNames->push_back(DNSName);
+				dnsNames.push_back(string(
+					reinterpret_cast <const char*>(ASN1_STRING_get0_data(currentName->d.dNSName)),
+					ASN1_STRING_length(currentName->d.dNSName)
+				));
 			}
 		}
+
+		sk_GENERAL_NAME_pop_free(altNames, GENERAL_NAME_free);
 	}
 
-	sk_GENERAL_NAME_pop_free(altNames, GENERAL_NAME_free);
+	// Match the host name against the DNS names of the subject alternative
+	// names. Names must match entirely (labels are not compared partially),
+	// and a wildcard only matches the whole left-most label (RFC 9525,
+	// section 6.3). If there are no DNS names, the common name is used, as
+	// RFC 6125, section 6.4.4 allowed: RFC 9525 does not allow it any more,
+	// but it is kept for compatibility (eg. self-signed certificates with a
+	// common name only), like GnuTLS does.
+	//
+	// The use of the common name is always requested explicitly: by default,
+	// OpenSSL uses it if there are no DNS names before OpenSSL 4.1, and never
+	// since OpenSSL 4.1.
+	const unsigned int flags =
+		X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS |
+		(dnsNames.empty() ? X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT : X509_CHECK_FLAG_NEVER_CHECK_SUBJECT);
 
-	return verify;
+	// X509_check_host() takes a name starting with a dot as "any subdomain":
+	// do not accept such a name.
+	if (!hostname.empty() && hostname[0] != '.' &&
+	    X509_check_host(m_data->cert, hostname.data(), hostname.length(), flags, NULL) == 1) {
+
+		return true;
+	}
+
+	if (nonMatchingNames) {
+
+		char CNBuffer[1024];
+		CNBuffer[sizeof(CNBuffer) - 1] = '\0';
+
+		auto xname = X509_get_subject_name(m_data->cert);
+
+		if (X509_NAME_get_text_by_NID(xname, NID_commonName, CNBuffer, sizeof(CNBuffer)) != -1) {
+			nonMatchingNames->push_back(CNBuffer);
+		}
+
+		nonMatchingNames->insert(nonMatchingNames->end(), dnsNames.begin(), dnsNames.end());
+	}
+
+	return false;
 }
 
 
-const datetime X509Certificate_OpenSSL::convertX509Date(void* time) const {
+datetime X509Certificate_OpenSSL::convertX509Date(void* time) const {
 
 	char* buffer;
 	BIO* out = BIO_new(BIO_s_mem());
@@ -536,19 +639,19 @@ const datetime X509Certificate_OpenSSL::convertX509Date(void* time) const {
 }
 
 
-const datetime X509Certificate_OpenSSL::getActivationDate() const {
+datetime X509Certificate_OpenSSL::getActivationDate() const {
 
 	return convertX509Date(X509_get_notBefore(m_data->cert));
 }
 
 
-const datetime X509Certificate_OpenSSL::getExpirationDate() const {
+datetime X509Certificate_OpenSSL::getExpirationDate() const {
 
 	return convertX509Date(X509_get_notAfter(m_data->cert));
 }
 
 
-const byteArray X509Certificate_OpenSSL::getFingerprint(const DigestAlgorithm algo) const {
+byteArray X509Certificate_OpenSSL::getFingerprint(const DigestAlgorithm algo) const {
 
 	BIO *out;
 	int j;
@@ -601,7 +704,7 @@ const byteArray X509Certificate_OpenSSL::getFingerprint(const DigestAlgorithm al
 }
 
 
-const byteArray X509Certificate_OpenSSL::getEncoded() const {
+byteArray X509Certificate_OpenSSL::getEncoded() const {
 
 	byteArray bytes;
 	utility::outputStreamByteArrayAdapter os(bytes);
@@ -612,7 +715,7 @@ const byteArray X509Certificate_OpenSSL::getEncoded() const {
 }
 
 
-const string X509Certificate_OpenSSL::getIssuerString() const {
+string X509Certificate_OpenSSL::getIssuerString() const {
 
 	// Get issuer for this cert
 	BIO* out = BIO_new(BIO_s_mem());
@@ -628,7 +731,7 @@ const string X509Certificate_OpenSSL::getIssuerString() const {
 }
 
 
-const string X509Certificate_OpenSSL::getType() const {
+string X509Certificate_OpenSSL::getType() const {
 
 	return "X.509";
 }

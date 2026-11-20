@@ -30,6 +30,7 @@
 #include "vmime/utility/outputStreamAdapter.hpp"
 #include "vmime/utility/outputStreamStringAdapter.hpp"
 #include "vmime/utility/stringUtils.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -41,9 +42,9 @@ namespace vmime {
   * @param idnaDomain domain name encoded with IDNA
   * @return decoded domain name in UTF-8
   */
-static const string domainNameFromIDNA(const string& idnaDomain) {
+static string domainNameFromIDNA(const string& idnaDomain) {
 
-	std::ostringstream domainName;
+	utility::details::classicOStringStream domainName;
 	size_t p = 0;
 
 	for (size_t n = idnaDomain.find('.', p) ;
@@ -101,9 +102,9 @@ static const string domainNameFromIDNA(const string& idnaDomain) {
   * @param domainName domain name in UTF-8
   * @return domain name encoded with IDNA
   */
-static const string domainNameToIDNA(const string& domainName) {
+static string domainNameToIDNA(const string& domainName) {
 
-	std::ostringstream idnaDomain;
+	utility::details::classicOStringStream idnaDomain;
 	size_t p = 0;
 
 	for (size_t n = domainName.find('.', p) ;
@@ -205,8 +206,8 @@ void emailAddress::parseImpl(
 		State_Error
 	} state = State_Before;
 
-	std::ostringstream localPart;
-	std::ostringstream domainPart;
+	string localPart;
+	string domainPart;
 
 	bool escapeNext = false;  // for quoting
 	bool prevIsDot = false;
@@ -219,7 +220,7 @@ void emailAddress::parseImpl(
 
 		const char c = *p;
 
-		if ((localPart.str().length() + domainPart.str().length()) >= 256) {
+		if ((localPart.length() + domainPart.length()) >= 256) {
 			state = State_Error;
 			break;
 		}
@@ -257,7 +258,7 @@ void emailAddress::parseImpl(
 				} else {
 
 					state = State_LocalPartMiddle;
-					localPart << c;
+					localPart += c;
 					++p;
 				}
 
@@ -305,7 +306,7 @@ void emailAddress::parseImpl(
 
 					if (c == '"' || c == '\\') {
 
-						localPart << c;
+						localPart += c;
 						++p;
 
 					} else {
@@ -327,7 +328,7 @@ void emailAddress::parseImpl(
 
 				} else {
 
-					localPart << c;
+					localPart += c;
 					++p;
 				}
 
@@ -338,15 +339,15 @@ void emailAddress::parseImpl(
 				if (c == '?') {
 
 					state = State_LocalPartRFC2047Middle;
-					localPart << "=?";
+					localPart += "=?";
 					localPartIsRFC2047 = true;
 					++p;
 
 				} else {
 
 					state = State_LocalPartMiddle;
-					localPart << '=';
-					localPart << c;
+					localPart += '=';
+					localPart += c;
 					++p;
 				}
 
@@ -357,7 +358,7 @@ void emailAddress::parseImpl(
 				if (c == '.') {
 
 					prevIsDot = true;
-					localPart << c;
+					localPart += c;
 					++p;
 
 				} else if (c == '"' && prevIsDot) {
@@ -388,7 +389,7 @@ void emailAddress::parseImpl(
 				} else {
 
 					prevIsDot = false;
-					localPart << c;
+					localPart += c;
 					++p;
 				}
 
@@ -403,7 +404,7 @@ void emailAddress::parseImpl(
 
 				} else {
 
-					localPart << c;
+					localPart += c;
 					++p;
 				}
 
@@ -415,14 +416,14 @@ void emailAddress::parseImpl(
 
 					// End of RFC-2047 encoded word
 					state = State_LocalPartRFC2047End;
-					localPart << "?=";
+					localPart += "?=";
 					++p;
 
 				} else {
 
 					state = State_LocalPartRFC2047Middle;
-					localPart << '?';
-					localPart << c;
+					localPart += '?';
+					localPart += c;
 					++p;
 				}
 
@@ -454,7 +455,7 @@ void emailAddress::parseImpl(
 				} else {
 
 					state = State_DomainPartMiddle;
-					domainPart << c;
+					domainPart += c;
 					++p;
 				}
 
@@ -476,7 +477,7 @@ void emailAddress::parseImpl(
 
 				} else {
 
-					domainPart << c;
+					domainPart += c;
 					++p;
 				}
 
@@ -542,17 +543,17 @@ void emailAddress::parseImpl(
 	} else {
 
 		// If the domain part is missing, use local host name
-		if (ctx.getUseMyHostname() && domainPart.str().empty() && !atFound) {
-			domainPart << platform::getHandler()->getHostName();
+		if (ctx.getUseMyHostname() && domainPart.empty() && !atFound) {
+			domainPart = platform::getHandler()->getHostName();
 		}
 
 		if (localPartIsRFC2047) {
-			m_localName.parse(localPart.str());
+			m_localName.parse(localPart);
 		} else {
-			m_localName = word(localPart.str(), vmime::charsets::UTF_8);
+			m_localName = word(localPart, vmime::charsets::UTF_8);
 		}
 
-		m_domainName = word(domainNameFromIDNA(domainPart.str()), vmime::charsets::UTF_8);
+		m_domainName = word(domainNameFromIDNA(domainPart), vmime::charsets::UTF_8);
 	}
 
 	setParsedBounds(position, p - pend);
@@ -698,7 +699,7 @@ void emailAddress::setDomainName(const word& domainName) {
 }
 
 
-const std::vector <shared_ptr <component> > emailAddress::getChildComponents() {
+std::vector <shared_ptr <component> > emailAddress::getChildComponents() {
 
 	return std::vector <shared_ptr <component> >();
 }
@@ -710,9 +711,9 @@ bool emailAddress::isEmpty() const {
 }
 
 
-const string emailAddress::toString() const {
+string emailAddress::toString() const {
 
-	std::ostringstream oss;
+	utility::details::classicOStringStream oss;
 	utility::outputStreamAdapter adapter(oss);
 
 	generationContext ctx(generationContext::getDefaultContext());
@@ -724,7 +725,7 @@ const string emailAddress::toString() const {
 }
 
 
-const text emailAddress::toText() const {
+text emailAddress::toText() const {
 
 	text txt;
 	txt.appendWord(make_shared <vmime::word>(m_localName));

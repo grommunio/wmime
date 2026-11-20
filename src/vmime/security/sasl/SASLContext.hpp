@@ -28,9 +28,8 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
-#include <gsasl.h>
 
 #include "vmime/types.hpp"
 
@@ -39,6 +38,19 @@
 
 
 namespace vmime {
+
+
+#if VMIME_HAVE_TLS_SUPPORT
+namespace net {
+namespace tls {
+
+class TLSSocket;
+
+} // tls
+} // net
+#endif // VMIME_HAVE_TLS_SUPPORT
+
+
 namespace security {
 namespace sasl {
 
@@ -46,9 +58,6 @@ namespace sasl {
 /** An SASL client context.
   */
 class VMIME_EXPORT SASLContext : public object, public enable_shared_from_this <SASLContext> {
-
-	friend class SASLSession;
-	friend class builtinSASLMechanism;
 
 public:
 
@@ -78,20 +87,101 @@ public:
 	  * @param name mechanism name
 	  * @return a new instance of the specified SASL mechanism
 	  * @throw exceptions::no_such_mechanism if no mechanism is
-	  * registered for the specified name
+	  * registered for the specified name, or if it cannot be used in
+	  * this context
+	  * @throw exceptions::plaintext_mechanism_not_allowed if the
+	  * mechanism sends the credentials in clear text, and this is not
+	  * allowed (see setPlaintextAllowed())
 	  */
 	shared_ptr <SASLMechanism> createMechanism(const string& name);
+
+	/** Set whether the mechanisms which send the credentials in clear
+	  * text (see SASLMechanism::isPlaintext()) can be used. This should
+	  * only be allowed if the connection on which authentication takes
+	  * place is secured, typically with TLS. By default, it is not
+	  * allowed.
+	  *
+	  * @param allowed true to allow plaintext mechanisms, or false
+	  * otherwise
+	  */
+	void setPlaintextAllowed(const bool allowed);
+
+	/** Return whether the mechanisms which send the credentials in clear
+	  * text can be used.
+	  *
+	  * @return true if plaintext mechanisms are allowed, false otherwise
+	  */
+	bool isPlaintextAllowed() const;
 
 	/** Suggests an SASL mechanism among a set of mechanisms
 	  * supported by the server.
 	  *
 	  * @param mechs list of mechanisms
 	  * @return suggested mechanism (usually the safest mechanism
-	  * supported by both the client and the server)
+	  * supported by both the client and the server), or NULL if
+	  * the list is empty
 	  */
 	shared_ptr <SASLMechanism> suggestMechanism(
 		const std::vector <shared_ptr <SASLMechanism> >& mechs
 	);
+
+	/** Set the channel binding data of the connection on which
+	  * authentication takes place (see RFC 5056). This is required
+	  * to use the mechanisms which support channel binding (the
+	  * "-PLUS" variants): they are not available otherwise.
+	  *
+	  * @param type channel binding type, as registered by IANA
+	  * ("tls-unique" or "tls-exporter")
+	  * @param data channel binding data
+	  * @return true if the channel binding type is supported, or
+	  * false otherwise (in this case, the data is ignored)
+	  */
+	bool setChannelBindingData(const string& type, const byteArray& data);
+
+#if VMIME_HAVE_TLS_SUPPORT
+
+	/** Set the channel binding data from the TLS socket on which
+	  * authentication takes place. "tls-unique" is used if it is
+	  * available (TLS 1.2 and earlier), otherwise "tls-exporter"
+	  * is used (TLS 1.3).
+	  *
+	  * @param sok TLS socket
+	  */
+	void setChannelBindingData(const shared_ptr <net::tls::TLSSocket>& sok);
+
+#endif // VMIME_HAVE_TLS_SUPPORT
+
+	/** Return whether channel binding data has been set for
+	  * this context.
+	  *
+	  * @return true if channel binding data is available,
+	  * false otherwise
+	  */
+	bool hasChannelBindingData() const;
+
+	/** Return the type of the channel binding data set for this
+	  * context.
+	  *
+	  * @return channel binding type ("tls-unique" or "tls-exporter"),
+	  * or an empty string if no channel binding data has been set
+	  */
+	const string& getChannelBindingType() const;
+
+	/** Return the channel binding data set for this context.
+	  *
+	  * @return channel binding data, or an empty array if no
+	  * channel binding data has been set
+	  */
+	const byteArray& getChannelBindingData() const;
+
+	/** Return whether the specified mechanism uses channel binding,
+	  * ie. if it is a "-PLUS" variant.
+	  *
+	  * @param name mechanism name
+	  * @return true if the mechanism uses channel binding,
+	  * false otherwise
+	  */
+	static bool isChannelBindingMechanism(const string& name);
 
 	/** Helper function for decoding Base64-encoded challenge.
 	  *
@@ -107,7 +197,7 @@ public:
 	  * @param inputLen length of input buffer
 	  * @return Base64-encoded challenge
 	  */
-	const string encodeB64(const byte_t* input, const size_t inputLen);
+	string encodeB64(const byte_t* input, const size_t inputLen);
 
 private:
 
@@ -115,9 +205,10 @@ private:
 	SASLContext(SASLContext&);
 
 
-	static const string getErrorMessage(const string& fname, const int code);
+	bool m_plaintextAllowed;
 
-	Gsasl* m_gsaslContext;
+	string m_channelBindingType;
+	byteArray m_channelBindingData;
 };
 
 
@@ -126,6 +217,6 @@ private:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES
 
 #endif // VMIME_SECURITY_SASL_SASLCONTEXT_HPP_INCLUDED

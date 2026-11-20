@@ -77,7 +77,7 @@ public:
 	  *
 	  * @return status code
 	  */
-	const SMTPResponse::enhancedStatusCode extendedStatusCode() const;
+	SMTPResponse::enhancedStatusCode extendedStatusCode() const;
 
 
 	exception* clone() const;
@@ -142,6 +142,89 @@ public:
 
 	SMTPDSNExtensionNotSupportedException(const exception& other = NO_EXCEPTION);
 	~SMTPDSNExtensionNotSupportedException() throw();
+
+	exception* clone() const;
+	const char* name() const throw();
+};
+
+
+/** SMTP error: RFC-6531 SMTPUTF8 extension is not supported by the server,
+  * whereas it is needed to send a message with non-ASCII addresses.
+  * A server which does not announce 8BITMIME along with SMTPUTF8 does not
+  * support it either (RFC 6531, section 3.1).
+  */
+class VMIME_EXPORT SMTPUTF8ExtensionNotSupportedException : public SMTPExtensionNotSupportedException {
+
+public:
+
+	SMTPUTF8ExtensionNotSupportedException(const exception& other = NO_EXCEPTION);
+	~SMTPUTF8ExtensionNotSupportedException() throw();
+
+	exception* clone() const;
+	const char* name() const throw();
+};
+
+
+/** SMTP error: RFC-6152 8BITMIME extension is not supported by the server,
+  * whereas it is needed to send a message which contains 8-bit data.
+  */
+class VMIME_EXPORT SMTP8BITMIMEExtensionNotSupportedException : public SMTPExtensionNotSupportedException {
+
+public:
+
+	SMTP8BITMIMEExtensionNotSupportedException(const exception& other = NO_EXCEPTION);
+	~SMTP8BITMIMEExtensionNotSupportedException() throw();
+
+	exception* clone() const;
+	const char* name() const throw();
+};
+
+
+/** SMTP error: RFC-3030 BINARYMIME extension is not supported by the server,
+  * or cannot be used (it can only be used with the CHUNKING extension),
+  * whereas it is needed to send a message which contains binary data.
+  */
+class VMIME_EXPORT SMTPBINARYMIMEExtensionNotSupportedException : public SMTPExtensionNotSupportedException {
+
+public:
+
+	SMTPBINARYMIMEExtensionNotSupportedException(const exception& other = NO_EXCEPTION);
+	~SMTPBINARYMIMEExtensionNotSupportedException() throw();
+
+	exception* clone() const;
+	const char* name() const throw();
+};
+
+
+/** SMTP error: the message contains binary data (NUL, or lines longer than
+  * 998 octets), but it was not sent with the BODY=BINARYMIME parameter
+  * (RFC 3030), as VMime could not know it in advance. The message has not
+  * been sent: send it again, telling that it contains binary data with
+  * SMTPSendOptions::setBinaryMessage().
+  */
+class VMIME_EXPORT SMTPUndeclaredBinaryDataException : public exceptions::net_exception {
+
+public:
+
+	SMTPUndeclaredBinaryDataException(const exception& other = NO_EXCEPTION);
+	~SMTPUndeclaredBinaryDataException() throw();
+
+	exception* clone() const;
+	const char* name() const throw();
+};
+
+
+/** SMTP error: the message contains 8-bit data, but it was not sent with
+  * the BODY=8BITMIME parameter (RFC 6152), as VMime could not know it in
+  * advance. The message has not been sent: send it again, telling that it
+  * contains 8-bit data with SMTPSendOptions::set8bitMessage().
+  */
+class VMIME_EXPORT SMTPUndeclared8bitDataException : public exceptions::net_exception {
+
+public:
+
+	SMTPUndeclared8bitDataException(const exception& other = NO_EXCEPTION);
+	~SMTPUndeclared8bitDataException() throw();
 
 	exception* clone() const;
 	const char* name() const throw();

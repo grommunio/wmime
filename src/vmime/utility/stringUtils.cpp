@@ -96,7 +96,7 @@ bool stringUtils::isStringEqualNoCase(
 }
 
 
-const string stringUtils::toLower(const string& str) {
+string stringUtils::toLower(const string& str) {
 
 	const std::ctype <char>& fac =
 		std::use_facet <std::ctype <char> >(std::locale::classic());
@@ -112,7 +112,7 @@ const string stringUtils::toLower(const string& str) {
 }
 
 
-const string stringUtils::toUpper(const string& str) {
+string stringUtils::toUpper(const string& str) {
 
 	const std::ctype <char>& fac =
 		std::use_facet <std::ctype <char> >(std::locale::classic());
@@ -128,7 +128,7 @@ const string stringUtils::toUpper(const string& str) {
 }
 
 
-const string stringUtils::trim(const string& str) {
+string stringUtils::trim(const string& str) {
 
 	string::const_iterator b = str.begin();
 	string::const_iterator e = str.end();
@@ -189,7 +189,7 @@ size_t stringUtils::findFirstNonASCIIchar(
 }
 
 
-const string stringUtils::unquote(const string& str) {
+string stringUtils::unquote(const string& str) {
 
 	if (str.length() < 2) {
 		return str;
@@ -239,21 +239,23 @@ string stringUtils::quote(
 	const string& escapeChar
 ) {
 
-	std::ostringstream oss;
+	string res;
+	res.reserve(str.length());
+
 	size_t lastPos = 0, pos = 0;
 
 	while ((pos = str.find_first_of(escapeSpecialChars, lastPos)) != string::npos) {
 
-		oss << str.substr(lastPos, pos - lastPos)
-		    << escapeChar
-		    << str[pos];
+		res.append(str, lastPos, pos - lastPos);
+		res += escapeChar;
+		res += str[pos];
 
 		lastPos = pos + 1;
 	}
 
-	oss << str.substr(lastPos);
+	res.append(str, lastPos, string::npos);
 
-	return oss.str();
+	return res;
 }
 
 

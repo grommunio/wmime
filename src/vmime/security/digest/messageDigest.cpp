@@ -22,6 +22,7 @@
 //
 
 #include "vmime/security/digest/messageDigest.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <sstream>
 
@@ -31,15 +32,14 @@ namespace security {
 namespace digest {
 
 
-const string messageDigest::getHexDigest() const {
+string messageDigest::getHexDigest() const {
 
 	const byte_t* hash = getDigest();
 	const size_t len = getDigestLength();
 
 	static const unsigned char hex[] = "0123456789abcdef";
 
-	std::ostringstream oss;
-	oss.imbue(std::locale::classic());
+	utility::details::classicOStringStream oss;
 
 	for (size_t i = 0 ; i < len ; ++i) {
 		oss << hex[(hash[i] & 0xf0) >> 4];

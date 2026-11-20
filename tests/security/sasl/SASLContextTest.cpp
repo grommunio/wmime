@@ -1,0 +1,417 @@
+//
+// VMime library (http://www.vmime.org)
+// Copyright (C) 2002 Vincent Richard <vincent@vmime.org>
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License as
+// published by the Free Software Foundation; either version 3 of
+// the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+// General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along
+// with this program; if not, write to the Free Software Foundation, Inc.,
+// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+// Linking this library statically or dynamically with other modules is making
+// a combined work based on this library.  Thus, the terms and conditions of
+// the GNU General Public License cover the whole combination.
+//
+
+#include "tests/testUtils.hpp"
+
+
+#if VMIME_HAVE_MESSAGING_FEATURES
+
+
+#include "vmime/security/sasl/SASLContext.hpp"
+#include "vmime/security/sasl/SASLMechanismFactory.hpp"
+#include "vmime/security/sasl/XOAuth2SASLMechanism.hpp"
+#include "vmime/security/sasl/OAuthBearerSASLMechanism.hpp"
+#include "vmime/security/sasl/defaultSASLAuthenticator.hpp"
+
+
+class testSASLAuthenticator : public vmime::security::sasl::defaultSASLAuthenticator {
+
+public:
+
+	vmime::string getUsername() const { return "user"; }
+	vmime::string getPassword() const { return "pass"; }
+};
+
+
+// Mechanism which only has a name, for testing mechanism suggestion
+class testSASLMechanism : public vmime::security::sasl::SASLMechanism {
+
+public:
+
+	testSASLMechanism(const vmime::string& name)
+		: m_name(name) {
+
+	}
+
+	vmime::string getName() const { return m_name; }
+
+	bool step(
+		const vmime::shared_ptr <vmime::security::sasl::SASLSession>& /* sess */,
+		const vmime::byte_t* /* challenge */,
+		const size_t /* challengeLen */,
+		vmime::byte_t** /* response */,
+		size_t* /* responseLen */
+	) {
+
+		return true;
+	}
+
+	bool isComplete() const { return true; }
+
+	bool hasInitialResponse() const { return false; }
+
+	bool isPlaintext() const { return false; }
+
+	void encode(
+		const vmime::shared_ptr <vmime::security::sasl::SASLSession>& /* sess */,
+		const vmime::byte_t* /* input */,
+		const size_t /* inputLen */,
+		vmime::byte_t** /* output */,
+		size_t* /* outputLen */
+	) {
+
+	}
+
+	void decode(
+		const vmime::shared_ptr <vmime::security::sasl::SASLSession>& /* sess */,
+		const vmime::byte_t* /* input */,
+		const size_t /* inputLen */,
+		vmime::byte_t** /* output */,
+		size_t* /* outputLen */
+	) {
+
+	}
+
+private:
+
+	const vmime::string m_name;
+};
+
+
+VMIME_TEST_SUITE_BEGIN(SASLContextTest)
+
+	VMIME_TEST_LIST_BEGIN
+		VMIME_TEST(testCreateMechanism)
+		VMIME_TEST(testChannelBindingMechanism_NoData)
+		VMIME_TEST(testChannelBindingMechanism_WithData)
+		VMIME_TEST(testSetChannelBindingData_InvalidType)
+		VMIME_TEST(testSetChannelBindingData_EmptyData)
+		VMIME_TEST(testGetChannelBindingData)
+		VMIME_TEST(testChannelBinding_TLSUnique)
+		VMIME_TEST(testChannelBinding_TLSExporter)
+		VMIME_TEST(testChannelBinding_NotUsedWithoutPlus)
+		VMIME_TEST(testHasInitialResponse)
+		VMIME_TEST(testSuggestMechanism)
+		VMIME_TEST(testSuggestMechanism_Unknown)
+		VMIME_TEST(testSuggestMechanism_Empty)
+		VMIME_TEST(testPlaintextMechanism_NotAllowedByDefault)
+		VMIME_TEST(testPlaintextMechanism_Allowed)
+		VMIME_TEST(testIsPlaintext)
+	VMIME_TEST_LIST_END
+
+
+	static vmime::byteArray someChannelBindingData() {
+
+		static const vmime::byte_t data[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c };
+		return vmime::byteArray(data, data + sizeof(data));
+	}
+
+	static bool isMechanismAvailable(const vmime::string& name) {
+
+		return vmime::security::sasl::SASLMechanismFactory::getInstance()->isMechanismSupported(name);
+	}
+
+	// Return the first message sent by the client (initial response)
+	static vmime::string getClientFirstMessage(
+		const vmime::shared_ptr <vmime::security::sasl::SASLContext>& ctx,
+		const vmime::string& mechName
+	) {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLSession> sess =
+			ctx->createSession("imap", vmime::make_shared <testSASLAuthenticator>(), ctx->createMechanism(mechName));
+
+		sess->init();
+
+		vmime::byte_t* resp = NULL;
+		size_t respLen = 0;
+
+		sess->evaluateChallenge(NULL, 0, &resp, &respLen);
+
+		const vmime::string res(resp, resp + respLen);
+		delete [] resp;
+
+		return res;
+	}
+
+
+	void testCreateMechanism() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		ctx->setPlaintextAllowed(true);
+
+		VASSERT_EQ("1", "PLAIN", ctx->createMechanism("PLAIN")->getName());
+		VASSERT_EQ("2", "PLAIN", ctx->createMechanism("plain")->getName());
+	}
+
+	void testChannelBindingMechanism_NoData() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		VASSERT_FALSE("1", ctx->hasChannelBindingData());
+
+		VASSERT_THROW(
+			"2",
+			ctx->createMechanism("SCRAM-SHA-256-PLUS"),
+			vmime::exceptions::no_such_mechanism
+		);
+
+		VASSERT_THROW(
+			"3",
+			ctx->createMechanism("scram-sha-1-plus"),
+			vmime::exceptions::no_such_mechanism
+		);
+	}
+
+	void testChannelBindingMechanism_WithData() {
+
+		if (!isMechanismAvailable("SCRAM-SHA-256-PLUS")) {
+			return;  // not supported by GNU SASL
+		}
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		VASSERT_TRUE("1", ctx->setChannelBindingData("tls-unique", someChannelBindingData()));
+		VASSERT_TRUE("2", ctx->hasChannelBindingData());
+
+		VASSERT_EQ("3", "SCRAM-SHA-256-PLUS", ctx->createMechanism("SCRAM-SHA-256-PLUS")->getName());
+	}
+
+	void testSetChannelBindingData_InvalidType() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		VASSERT_FALSE("1", ctx->setChannelBindingData("tls-server-end-point", someChannelBindingData()));
+		VASSERT_FALSE("2", ctx->hasChannelBindingData());
+	}
+
+	void testSetChannelBindingData_EmptyData() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		VASSERT_FALSE("1", ctx->setChannelBindingData("tls-unique", vmime::byteArray()));
+		VASSERT_FALSE("2", ctx->hasChannelBindingData());
+	}
+
+	void testGetChannelBindingData() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		VASSERT_EQ("1", "", ctx->getChannelBindingType());
+		VASSERT_TRUE("2", ctx->getChannelBindingData().empty());
+
+		ctx->setChannelBindingData("tls-unique", someChannelBindingData());
+
+		VASSERT_EQ("3", "tls-unique", ctx->getChannelBindingType());
+		VASSERT_TRUE("4", ctx->getChannelBindingData() == someChannelBindingData());
+	}
+
+	void testChannelBinding_TLSUnique() {
+
+		if (!isMechanismAvailable("SCRAM-SHA-256-PLUS")) {
+			return;  // not supported by GNU SASL
+		}
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		ctx->setChannelBindingData("tls-unique", someChannelBindingData());
+
+		const vmime::string msg = getClientFirstMessage(ctx, "SCRAM-SHA-256-PLUS");
+
+		VASSERT_EQ("1", "p=tls-unique,,n=user,r=", msg.substr(0, 23));
+	}
+
+	void testChannelBinding_TLSExporter() {
+
+		if (!isMechanismAvailable("SCRAM-SHA-256-PLUS")) {
+			return;  // not supported by GNU SASL
+		}
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		if (!ctx->setChannelBindingData("tls-exporter", someChannelBindingData())) {
+			return;  // not supported by GNU SASL (< 2.1.0)
+		}
+
+		const vmime::string msg = getClientFirstMessage(ctx, "SCRAM-SHA-256-PLUS");
+
+		VASSERT_EQ("1", "p=tls-exporter,,n=user,r=", msg.substr(0, 25));
+	}
+
+	void testChannelBinding_NotUsedWithoutPlus() {
+
+		if (!isMechanismAvailable("SCRAM-SHA-256")) {
+			return;  // not supported by GNU SASL
+		}
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		ctx->setChannelBindingData("tls-unique", someChannelBindingData());
+
+		// Should not send the "y" flag, as the server would reject it if it supports channel binding
+		const vmime::string msg = getClientFirstMessage(ctx, "SCRAM-SHA-256");
+
+		VASSERT_EQ("1", "n,,n=user,r=", msg.substr(0, 12));
+	}
+
+	// Issue #319
+	void testHasInitialResponse() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		ctx->setChannelBindingData("tls-unique", someChannelBindingData());
+		ctx->setPlaintextAllowed(true);
+
+		// Client-first mechanisms
+		VASSERT_TRUE("PLAIN", ctx->createMechanism("PLAIN")->hasInitialResponse());
+		VASSERT_TRUE("plain", ctx->createMechanism("plain")->hasInitialResponse());
+
+		if (isMechanismAvailable("SCRAM-SHA-256")) {
+			VASSERT_TRUE("SCRAM-SHA-256", ctx->createMechanism("SCRAM-SHA-256")->hasInitialResponse());
+		}
+
+		if (isMechanismAvailable("SCRAM-SHA-256-PLUS")) {
+			VASSERT_TRUE("SCRAM-SHA-256-PLUS", ctx->createMechanism("SCRAM-SHA-256-PLUS")->hasInitialResponse());
+		}
+
+		// Server-first mechanisms
+		if (isMechanismAvailable("CRAM-MD5")) {
+			VASSERT_FALSE("CRAM-MD5", ctx->createMechanism("CRAM-MD5")->hasInitialResponse());
+		}
+
+		// No initial response (draft-murchison-sasl-login)
+		VASSERT_FALSE("LOGIN", ctx->createMechanism("LOGIN")->hasInitialResponse());
+	}
+
+	static vmime::string suggestMechanism(const std::vector <vmime::string>& names) {
+
+		std::vector <vmime::shared_ptr <vmime::security::sasl::SASLMechanism> > mechs;
+
+		for (size_t i = 0 ; i < names.size() ; ++i) {
+			mechs.push_back(vmime::make_shared <testSASLMechanism>(names[i]));
+		}
+
+		vmime::shared_ptr <vmime::security::sasl::SASLMechanism> suggested =
+			vmime::security::sasl::SASLContext::create()->suggestMechanism(mechs);
+
+		return suggested ? suggested->getName() : "(none)";
+	}
+
+	void testSuggestMechanism() {
+
+		VASSERT_EQ("1", "SCRAM-SHA-256", suggestMechanism({ "LOGIN", "PLAIN", "SCRAM-SHA-256", "CRAM-MD5" }));
+		VASSERT_EQ("2", "SCRAM-SHA-256-PLUS", suggestMechanism({ "SCRAM-SHA-256-PLUS", "SCRAM-SHA-256" }));
+		VASSERT_EQ("3", "GSSAPI", suggestMechanism({ "PLAIN", "GSSAPI", "SCRAM-SHA-1" }));
+		VASSERT_EQ("4", "PLAIN", suggestMechanism({ "LOGIN", "PLAIN" }));
+		VASSERT_EQ("5", "PLAIN", suggestMechanism({ "PLAIN" }));
+	}
+
+	// Unknown mechanisms are less preferred than all the known ones
+	void testSuggestMechanism_Unknown() {
+
+		VASSERT_EQ("1", "ANONYMOUS", suggestMechanism({ "X-UNKNOWN", "ANONYMOUS", "XOAUTH2" }));
+		VASSERT_EQ("2", "X-UNKNOWN", suggestMechanism({ "X-UNKNOWN", "XOAUTH2" }));
+	}
+
+	void testSuggestMechanism_Empty() {
+
+		VASSERT_EQ("1", "(none)", suggestMechanism({}));
+	}
+
+	void testPlaintextMechanism_NotAllowedByDefault() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		VASSERT_FALSE("1", ctx->isPlaintextAllowed());
+
+		VASSERT_THROW(
+			"2",
+			ctx->createMechanism("PLAIN"),
+			vmime::exceptions::plaintext_mechanism_not_allowed
+		);
+
+		VASSERT_THROW(
+			"3",
+			ctx->createMechanism("LOGIN"),
+			vmime::exceptions::plaintext_mechanism_not_allowed
+		);
+
+		if (isMechanismAvailable("SCRAM-SHA-256")) {
+			VASSERT_EQ("4", "SCRAM-SHA-256", ctx->createMechanism("SCRAM-SHA-256")->getName());
+		}
+	}
+
+	void testPlaintextMechanism_Allowed() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		ctx->setPlaintextAllowed(true);
+
+		VASSERT_TRUE("1", ctx->isPlaintextAllowed());
+		VASSERT_EQ("2", "PLAIN", ctx->createMechanism("PLAIN")->getName());
+		VASSERT_EQ("3", "LOGIN", ctx->createMechanism("LOGIN")->getName());
+	}
+
+	void testIsPlaintext() {
+
+		vmime::shared_ptr <vmime::security::sasl::SASLContext> ctx =
+			vmime::security::sasl::SASLContext::create();
+
+		ctx->setPlaintextAllowed(true);
+
+		VASSERT_TRUE("PLAIN", ctx->createMechanism("PLAIN")->isPlaintext());
+		VASSERT_TRUE("LOGIN", ctx->createMechanism("LOGIN")->isPlaintext());
+		VASSERT_TRUE(
+			"XOAUTH2",
+			vmime::security::sasl::XOAuth2SASLMechanism(ctx, "XOAUTH2").isPlaintext()
+		);
+		VASSERT_TRUE(
+			"OAUTHBEARER",
+			vmime::security::sasl::OAuthBearerSASLMechanism(ctx, "OAUTHBEARER").isPlaintext()
+		);
+
+		if (isMechanismAvailable("SCRAM-SHA-256")) {
+			VASSERT_FALSE("SCRAM-SHA-256", ctx->createMechanism("SCRAM-SHA-256")->isPlaintext());
+		}
+
+		if (isMechanismAvailable("CRAM-MD5")) {
+			VASSERT_FALSE("CRAM-MD5", ctx->createMechanism("CRAM-MD5")->isPlaintext());
+		}
+	}
+
+VMIME_TEST_SUITE_END
+
+
+#endif // VMIME_HAVE_MESSAGING_FEATURES

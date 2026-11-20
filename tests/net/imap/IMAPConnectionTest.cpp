@@ -220,6 +220,125 @@ int failingIMAPTestSocket::sm_connectedCount = 0;
 
 
 
+/** IMAP test server which supports SASL authentication with the PLAIN
+  * mechanism, and advertises the SASL-IR capability (RFC 4959) if it has
+  * been enabled with reset(). The other advertised capabilities can also
+  * be specified with reset().
+  *
+  * The lines sent by the client during authentication are recorded.
+  */
+class SASLIMAPTestSocket : public lineBasedTestSocket {
+
+public:
+
+	SASLIMAPTestSocket()
+		: m_authenticating(false) {
+
+	}
+
+	static void reset(const bool saslIR, const vmime::string& capabilities = "AUTH=PLAIN") {
+
+		sm_saslIR = saslIR;
+		sm_capabilities = capabilities;
+		sm_authLines.clear();
+	}
+
+	static const std::vector <vmime::string>& getAuthLines() {
+
+		return sm_authLines;
+	}
+
+	void onConnected() {
+
+		localSend("* OK test.vmime.org IMAP4rev1 server ready\r\n");
+	}
+
+	void processCommand() {
+
+		if (!haveMoreLines()) {
+			return;
+		}
+
+		const vmime::string line = getNextLine();
+
+		if (m_authenticating) {
+
+			// Client response to the (empty) server challenge
+			sm_authLines.push_back(line);
+			localSend(m_authTag + " OK AUTHENTICATE completed\r\n");
+
+			m_authenticating = false;
+
+			processCommand();
+			return;
+		}
+
+		const vmime::size_t sp = line.find(' ');
+
+		const vmime::string tag = line.substr(0, sp);
+		const vmime::string cmd = line.substr(sp + 1);
+
+		const vmime::string verb =
+			vmime::utility::stringUtils::toUpper(cmd.substr(0, cmd.find(' ')));
+
+		if (verb == "CAPABILITY") {
+
+			localSend("* CAPABILITY IMAP4rev1 " + sm_capabilities
+				+ (sm_saslIR ? " SASL-IR" : "") + "\r\n");
+			localSend(tag + " OK CAPABILITY completed\r\n");
+
+		} else if (verb == "AUTHENTICATE") {
+
+			sm_authLines.push_back(cmd);
+
+			if (cmd == "AUTHENTICATE PLAIN") {
+
+				// No initial response
+				localSend("+ \r\n");
+
+				m_authTag = tag;
+				m_authenticating = true;
+
+			} else {
+
+				localSend(tag + " OK AUTHENTICATE completed\r\n");
+			}
+
+		} else if (verb == "LIST") {
+
+			localSend("* LIST (\\Noselect) \"/\" \"\"\r\n");
+			localSend(tag + " OK LIST completed\r\n");
+
+		} else if (verb == "LOGOUT") {
+
+			localSend("* BYE test.vmime.org IMAP4rev1 server logging out\r\n");
+			localSend(tag + " OK LOGOUT completed\r\n");
+
+		} else {
+
+			localSend(tag + " BAD Command not recognized\r\n");
+		}
+
+		processCommand();
+	}
+
+private:
+
+	bool m_authenticating;
+	vmime::string m_authTag;
+
+	static bool sm_saslIR;
+	static vmime::string sm_capabilities;
+	static std::vector <vmime::string> sm_authLines;
+};
+
+
+bool SASLIMAPTestSocket::sm_saslIR = false;
+vmime::string SASLIMAPTestSocket::sm_capabilities;
+std::vector <vmime::string> SASLIMAPTestSocket::sm_authLines;
+
+
+
 VMIME_TEST_SUITE_BEGIN(IMAPConnectionTest)
 
 	VMIME_TEST_LIST_BEGIN
@@ -234,6 +353,12 @@ VMIME_TEST_SUITE_BEGIN(IMAPConnectionTest)
 		VMIME_TEST(testFolderReopenAfterTimeout)
 		VMIME_TEST(testFetchWriteError)
 		VMIME_TEST(testAppendReadError)
+		VMIME_TEST(testTrace_LOGIN)
+		VMIME_TEST(testSASLInitialResponse)
+		VMIME_TEST(testSASLInitialResponse_NoSASLIR)
+		VMIME_TEST(testTrace_AUTHENTICATE)
+		VMIME_TEST(testPlaintextAuthNotAllowed)
+		VMIME_TEST(testLOGINDISABLED)
 	VMIME_TEST_LIST_END
 
 
@@ -242,6 +367,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPConnectionTest)
 		failingIMAPTestSocket::reset();
 
 		vmime::shared_ptr <vmime::net::session> sess = vmime::net::session::create();
+		sess->getProperties()["store.imap.auth.allow-plaintext"] = true;
 
 		vmime::shared_ptr <IMAPStore> store = vmime::dynamicCast <IMAPStore>(
 			sess->getStore(vmime::utility::url("imap://user:pass@localhost"))
@@ -519,6 +645,164 @@ VMIME_TEST_SUITE_BEGIN(IMAPConnectionTest)
 
 		VASSERT_NO_THROW("Disconnect", store->disconnect());
 		VASSERT_EQ("All connections closed", 0, failingIMAPTestSocket::getConnectedCount());
+	}
+
+	// Return whether the specified command has been traced (ignoring the tag)
+	static bool isCommandTraced(const std::vector <vmime::string>& lines, const vmime::string& cmd) {
+
+		for (const auto& line : lines) {
+
+			const vmime::size_t sp = line.find(' ');
+
+			if (sp != vmime::string::npos && line.substr(sp + 1) == cmd) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Credentials must not appear in the trace
+	void testTrace_LOGIN() {
+
+		vmime::shared_ptr <IMAPStore> store = createStore();
+
+		vmime::shared_ptr <recordingTracerFactory> tracerFactory =
+			vmime::make_shared <recordingTracerFactory>();
+
+		store->setTracerFactory(tracerFactory);
+
+		store->connect();
+		store->disconnect();
+
+		const std::vector <vmime::string>& lines = tracerFactory->getTracer()->getSentLines();
+
+		VASSERT_TRUE("LOGIN", isCommandTraced(lines, "LOGIN {username} {password}"));
+		VASSERT_FALSE("Credentials", isCommandTraced(lines, "LOGIN user pass"));
+	}
+
+	static void connectSASL(
+		const bool saslIR,
+		const vmime::shared_ptr <vmime::net::tracerFactory>& tracerFactory = vmime::null
+	) {
+
+		SASLIMAPTestSocket::reset(saslIR);
+
+		vmime::shared_ptr <vmime::net::session> sess = vmime::net::session::create();
+		sess->getProperties()["store.imap.options.sasl.fallback"] = false;
+		sess->getProperties()["store.imap.auth.allow-plaintext"] = true;
+
+		vmime::shared_ptr <vmime::net::store> store =
+			sess->getStore(vmime::utility::url("imap://user:pass@localhost"));
+
+		store->setSocketFactory(vmime::make_shared <testSocketFactory <SASLIMAPTestSocket> >());
+		store->setTimeoutHandlerFactory(vmime::make_shared <testTimeoutHandlerFactory>());
+
+		if (tracerFactory) {
+			store->setTracerFactory(tracerFactory);
+		}
+
+		store->connect();
+		store->disconnect();
+	}
+
+	// Issue #319: initial response is sent if the server supports SASL-IR
+	void testSASLInitialResponse() {
+
+		connectSASL(/* saslIR */ true);
+
+		const std::vector <vmime::string>& lines = SASLIMAPTestSocket::getAuthLines();
+
+		VASSERT_EQ("Count", 1, lines.size());
+		VASSERT_EQ("AUTHENTICATE", "AUTHENTICATE PLAIN AHVzZXIAcGFzcw==", lines[0]);
+	}
+
+	// RFC 4959: initial response must not be sent if the server does not support SASL-IR
+	void testSASLInitialResponse_NoSASLIR() {
+
+		connectSASL(/* saslIR */ false);
+
+		const std::vector <vmime::string>& lines = SASLIMAPTestSocket::getAuthLines();
+
+		VASSERT_EQ("Count", 2, lines.size());
+		VASSERT_EQ("AUTHENTICATE", "AUTHENTICATE PLAIN", lines[0]);
+		VASSERT_EQ("Response", "AHVzZXIAcGFzcw==", lines[1]);
+	}
+
+	// Initial response (which contains the credentials) must not appear in the trace
+	void testTrace_AUTHENTICATE() {
+
+		vmime::shared_ptr <recordingTracerFactory> tracerFactory =
+			vmime::make_shared <recordingTracerFactory>();
+
+		connectSASL(/* saslIR */ true, tracerFactory);
+
+		const std::vector <vmime::string>& lines = tracerFactory->getTracer()->getSentLines();
+
+		VASSERT_TRUE("AUTHENTICATE", isCommandTraced(lines, "AUTHENTICATE PLAIN {initial-response}"));
+		VASSERT_FALSE("Credentials", isCommandTraced(lines, "AUTHENTICATE PLAIN AHVzZXIAcGFzcw=="));
+	}
+
+	// Connect to a server which advertises the specified capabilities: if SASL
+	// authentication is not possible, the LOGIN command may be used instead
+	static void connectWithLOGINFallback(
+		const vmime::string& capabilities,
+		const bool allowPlaintext,
+		const vmime::shared_ptr <vmime::net::tracerFactory>& tracerFactory
+	) {
+
+		SASLIMAPTestSocket::reset(/* saslIR */ false, capabilities);
+
+		vmime::shared_ptr <vmime::net::session> sess = vmime::net::session::create();
+		sess->getProperties()["store.imap.auth.allow-plaintext"] = allowPlaintext;
+
+		vmime::shared_ptr <vmime::net::store> store =
+			sess->getStore(vmime::utility::url("imap://user:pass@localhost"));
+
+		store->setSocketFactory(vmime::make_shared <testSocketFactory <SASLIMAPTestSocket> >());
+		store->setTimeoutHandlerFactory(vmime::make_shared <testTimeoutHandlerFactory>());
+		store->setTracerFactory(tracerFactory);
+
+		store->connect();
+		store->disconnect();
+	}
+
+	// The credentials must not be sent in clear text on a connection which is not
+	// secured: neither with PLAIN (RFC 4616, section 1), nor with the LOGIN command
+	// (RFC 9051, section 6.2.3)
+	void testPlaintextAuthNotAllowed() {
+
+		vmime::shared_ptr <recordingTracerFactory> tracerFactory =
+			vmime::make_shared <recordingTracerFactory>();
+
+		VASSERT_THROW(
+			"Connect",
+			connectWithLOGINFallback("AUTH=PLAIN", /* allowPlaintext */ false, tracerFactory),
+			vmime::exceptions::plaintext_authentication_not_allowed
+		);
+
+		const std::vector <vmime::string>& lines = tracerFactory->getTracer()->getSentLines();
+
+		VASSERT_EQ("AUTHENTICATE", 0, SASLIMAPTestSocket::getAuthLines().size());
+		VASSERT_FALSE("LOGIN", isCommandTraced(lines, "LOGIN {username} {password}"));
+	}
+
+	// A client MUST NOT send a LOGIN command if the LOGINDISABLED capability is
+	// advertised (RFC 9051, section 6.2.3)
+	void testLOGINDISABLED() {
+
+		vmime::shared_ptr <recordingTracerFactory> tracerFactory =
+			vmime::make_shared <recordingTracerFactory>();
+
+		VASSERT_THROW(
+			"Connect",
+			connectWithLOGINFallback("LOGINDISABLED", /* allowPlaintext */ true, tracerFactory),
+			vmime::exceptions::authentication_error
+		);
+
+		const std::vector <vmime::string>& lines = tracerFactory->getTracer()->getSentLines();
+
+		VASSERT_FALSE("LOGIN", isCommandTraced(lines, "LOGIN {username} {password}"));
 	}
 
 VMIME_TEST_SUITE_END

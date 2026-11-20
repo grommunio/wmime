@@ -23,7 +23,6 @@ INCLUDE(CheckSymbolExists)
 INCLUDE(CheckTypeSize)
 INCLUDE(CheckLibraryExists)
 INCLUDE(CheckCXXSourceCompiles)
-INCLUDE(GNUInstallDirs)
 
 
 # CMake configuration
@@ -69,7 +68,10 @@ PROJECT(
 	VERSION ${VMIME_VERSION}
 )
 
-# Install directories
+# Install directories (after PROJECT(), which detects the target platform,
+# so that the default library directory is the right one, eg. lib64)
+INCLUDE(GNUInstallDirs)
+
 IF(IS_ABSOLUTE ${CMAKE_INSTALL_LIBDIR})
 	SET(VMIME_INSTALL_LIBDIR ${CMAKE_INSTALL_LIBDIR})
 ELSE()
@@ -114,11 +116,29 @@ FIND_PACKAGE(ICU QUIET)
 
 IF(ICU_LIBRARIES)
 	SET(VMIME_CHARSETCONV_LIB_DETECTED "icu")
-	SET(CMAKE_CXX_STANDARD 17)
 ELSEIF(ICONV_FOUND)
 	SET(VMIME_CHARSETCONV_LIB_DETECTED "iconv")
 ELSEIF(WIN32)
 	SET(VMIME_CHARSETCONV_LIB_DETECTED "win")
+ENDIF()
+
+SET(
+	VMIME_CHARSETCONV_LIB
+	"${VMIME_CHARSETCONV_LIB_DETECTED}"
+	CACHE
+	STRING
+	"Library to use for charset conversion (win, iconv or icu)"
+)
+SET_PROPERTY(
+	CACHE
+	VMIME_CHARSETCONV_LIB
+	PROPERTY STRINGS win iconv icu
+)
+
+# ICU 75+ requires C++17; only upgrade when ICU is actually selected,
+# not merely installed
+IF(VMIME_CHARSETCONV_LIB STREQUAL "icu")
+	SET(CMAKE_CXX_STANDARD 17)
 ENDIF()
 
 # Source files
@@ -141,7 +161,6 @@ INCLUDE_DIRECTORIES(
 )
 
 INCLUDE(GenerateExportHeader)
-ADD_COMPILER_EXPORT_FLAGS()
 
 # Shared library
 OPTION(
@@ -227,6 +246,37 @@ IF(VMIME_BUILD_STATIC_LIBRARY)
 
 ENDIF()
 
+# Hide symbols by default, so that only those marked with VMIME_EXPORT are
+# exported. Only when GENERATE_EXPORT_HEADER() found that the compiler
+# supports it (COMPILER_HAS_HIDDEN_*VISIBILITY), as VMIME_EXPORT cannot mark
+# symbols otherwise. Never on Windows: __declspec(dllexport) is used there.
+OPTION(
+	USE_COMPILER_HIDDEN_VISIBILITY
+	"Use HIDDEN visibility support if available."
+	ON
+)
+MARK_AS_ADVANCED(USE_COMPILER_HIDDEN_VISIBILITY)
+
+IF(USE_COMPILER_HIDDEN_VISIBILITY AND COMPILER_HAS_HIDDEN_VISIBILITY)
+
+	# For the targets created from now on (tests, examples)
+	SET(CMAKE_CXX_VISIBILITY_PRESET hidden)
+	SET(CMAKE_VISIBILITY_INLINES_HIDDEN "${COMPILER_HAS_HIDDEN_INLINE_VISIBILITY}")
+
+	# For the libraries, which have already been created
+	FOREACH(VMIME_TARGET ${VMIME_LIBRARY_NAME} ${VMIME_LIBRARY_NAME}-static)
+		IF(TARGET ${VMIME_TARGET})
+			SET_TARGET_PROPERTIES(
+				${VMIME_TARGET}
+				PROPERTIES
+				CXX_VISIBILITY_PRESET hidden
+				VISIBILITY_INLINES_HIDDEN "${COMPILER_HAS_HIDDEN_INLINE_VISIBILITY}"
+			)
+		ENDIF()
+	ENDFOREACH()
+
+ENDIF()
+
 # Ensure at least one type of library (either shared or static) is build
 IF(NOT(VMIME_BUILD_SHARED_LIBRARY OR VMIME_BUILD_STATIC_LIBRARY))
 	MESSAGE(FATAL_ERROR "You should select at least one library to build (either VMIME_BUILD_SHARED_LIBRARY or VMIME_BUILD_STATIC_LIBRARY must be set to YES.")
@@ -254,8 +304,11 @@ IF(VMIME_BUILD_TESTS)
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/*Test.cpp
 	)
 
+	# Always static: as a shared library (eg. with BUILD_SHARED_LIBS=ON), its
+	# symbols would be hidden by the visibility flags set above
 	ADD_LIBRARY(
 		test-runner
+		STATIC
 		${CMAKE_CURRENT_SOURCE_DIR}/tests/testRunner.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/testUtils.cpp
 	)
 
@@ -599,15 +652,52 @@ OPTION(
 ##############################################################################
 # SASL support
 
+# SASL support is always enabled with messaging features: some mechanisms are
+# built into VMime, and the GNU SASL library can provide additional ones.
+#
+# VMIME_HAVE_SASL_SUPPORT used to enable the GNU SASL library: if it is set,
+# use it as the default value of VMIME_HAVE_GSASL.
+IF(DEFINED VMIME_HAVE_SASL_SUPPORT)
+
+	MESSAGE(
+		DEPRECATION
+		"VMIME_HAVE_SASL_SUPPORT is deprecated: SASL support is always enabled, "
+		"use VMIME_HAVE_GSASL to enable or disable the GNU SASL library"
+	)
+
+	IF(NOT DEFINED VMIME_HAVE_GSASL)
+		SET(
+			VMIME_HAVE_GSASL
+			${VMIME_HAVE_SASL_SUPPORT}
+			CACHE
+			BOOL
+			"Use the GNU SASL library for additional SASL mechanisms (SCRAM, GSSAPI...)"
+		)
+	ENDIF()
+
+	UNSET(VMIME_HAVE_SASL_SUPPORT CACHE)
+
+ENDIF()
+
 OPTION(
-	VMIME_HAVE_SASL_SUPPORT
-	"Enable SASL support (requires GNU SASL library)"
+	VMIME_HAVE_GSASL
+	"Use the GNU SASL library for additional SASL mechanisms (SCRAM, GSSAPI...)"
 	ON
 )
 
-IF(VMIME_HAVE_SASL_SUPPORT)
+SET(VMIME_HAVE_SASL_SUPPORT ${VMIME_HAVE_MESSAGING_FEATURES})
+
+IF(VMIME_HAVE_GSASL)
 
 	INCLUDE(cmake/FindGSasl.cmake)
+
+	IF(NOT GSASL_FOUND)
+		MESSAGE(
+			FATAL_ERROR
+			"GNU SASL library was not found: install it, or set VMIME_HAVE_GSASL to OFF "
+			"to use only the SASL mechanisms built into VMime"
+		)
+	ENDIF()
 
 	INCLUDE_DIRECTORIES(
 		${INCLUDE_DIRECTORIES}
@@ -643,7 +733,7 @@ IF(VMIME_HAVE_TLS_SUPPORT)
 		"gnutls"
 		CACHE
 		STRING
-		"Library to use for SSL/TLS conversion"
+		"Library to use for SSL/TLS support (gnutls or openssl)"
 	)
 	SET_PROPERTY(
 		CACHE
@@ -724,20 +814,6 @@ ENDIF(VMIME_HAVE_TLS_SUPPORT)
 
 ##############################################################################
 # Charset conversion library (2/2)
-
-SET(
-	VMIME_CHARSETCONV_LIB
-	"${VMIME_CHARSETCONV_LIB_DETECTED}"
-	CACHE
-	STRING
-	"Library to use for charset conversion"
-)
-SET_PROPERTY(
-	CACHE
-	VMIME_CHARSETCONV_LIB
-	PROPERTY STRINGS win iconv icu
-)
-
 
 IF(VMIME_CHARSETCONV_LIB STREQUAL "iconv")
 
@@ -1073,13 +1149,13 @@ IF(VMIME_INSTALL)
 		INSTALL(
 			TARGETS ${VMIME_LIBRARY_NAME}
 			EXPORT ${VMIME_LIBRARY_NAME}-config
-			LIBRARY DESTINATION "${VMIME_INSTALL_LIBDIR}"
-			PUBLIC_HEADER DESTINATION "${VMIME_INSTALL_INCLUDEDIR}"
+			LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+			PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 			COMPONENT sharedlibs
 		)
 		INSTALL(
 			EXPORT ${VMIME_LIBRARY_NAME}-config
-			DESTINATION "${VMIME_INSTALL_LIBDIR}/cmake/vmime"
+			DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/vmime"
 		)
 	ENDIF()
 
@@ -1087,13 +1163,13 @@ IF(VMIME_INSTALL)
 		INSTALL(
 			TARGETS ${VMIME_LIBRARY_NAME}-static
 			EXPORT ${VMIME_LIBRARY_NAME}-static-config
-			ARCHIVE DESTINATION "${VMIME_INSTALL_LIBDIR}"
-			PUBLIC_HEADER DESTINATION "${VMIME_INSTALL_INCLUDEDIR}"
+			ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+			PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 			COMPONENT staticlibs
 		)
 		INSTALL(
 			EXPORT ${VMIME_LIBRARY_NAME}-static-config
-			DESTINATION "${VMIME_INSTALL_LIBDIR}/cmake/vmime"
+			DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/vmime"
 		)
 	ENDIF()
 
@@ -1101,8 +1177,8 @@ IF(VMIME_INSTALL)
 	INSTALL_HEADERS_WITH_DIRECTORY(VMIME_LIBRARY_INCLUDE_FILES headers "${CMAKE_CURRENT_SOURCE_DIR}/src/")
 	INSTALL_HEADERS_WITH_DIRECTORY(VMIME_LIBRARY_GENERATED_INCLUDE_FILES headers "${CMAKE_CURRENT_BINARY_DIR}/src")
 
-	INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/vmime.pc DESTINATION "${VMIME_INSTALL_LIBDIR}/pkgconfig" COMPONENT headers)
-	INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/wmime.pc DESTINATION "${VMIME_INSTALL_LIBDIR}/pkgconfig" COMPONENT headers)
+	INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/vmime.pc DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig" COMPONENT headers)
+	INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/wmime.pc DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig" COMPONENT headers)
 
 	MESSAGE("")
 	MESSAGE("VMime will install to the following directories:")

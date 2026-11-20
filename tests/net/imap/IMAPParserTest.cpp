@@ -44,6 +44,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 		VMIME_TEST(test8BitCharsInQuotedString)
 		VMIME_TEST(testIDResponse)
 		VMIME_TEST(testIDResponse_NIL)
+		VMIME_TEST(testKeywords_TurkishLocale)
 	VMIME_TEST_LIST_END
 
 
@@ -81,7 +82,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			parser->setTimeoutHandler(vmime::make_shared <testTimeoutHandler>());
 			parser->setStrict(false);
 
-			VASSERT_NO_THROW("non-strict mode", parser->readResponse(*tag));
+			VASSERT_NO_THROW("non-strict mode", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 		}
 	}
 
@@ -113,7 +114,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 		parser->setTimeoutHandler(toh);
 
 		parser->setStrict(false);
-		VASSERT_NO_THROW("non-strict mode", parser->readResponse(*tag));
+		VASSERT_NO_THROW("non-strict mode", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 
 		++(*tag);
 
@@ -158,7 +159,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			parser->setTimeoutHandler(vmime::make_shared <testTimeoutHandler>());
 			parser->setStrict(false);
 
-			VASSERT_NO_THROW("non-strict mode", parser->readResponse(*tag));
+			VASSERT_NO_THROW("non-strict mode", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 		}
 	}
 
@@ -181,7 +182,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 		parser->setSocket(socket);
 		parser->setTimeoutHandler(toh);
 
-		VASSERT_NO_THROW("parse", parser->readResponse(*tag));
+		VASSERT_NO_THROW("parse", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 	}
 
 	// Support for NIL boundary, for mail.ru IMAP server:
@@ -218,7 +219,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			parser->setTimeoutHandler(vmime::make_shared <testTimeoutHandler>());
 			parser->setStrict(false);
 
-			VASSERT_NO_THROW("non-strict mode", parser->readResponse(*tag));
+			VASSERT_NO_THROW("non-strict mode", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 		}
 	}
 
@@ -253,7 +254,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			parser->setTimeoutHandler(vmime::make_shared <testTimeoutHandler>());
 			parser->setStrict(false);
 
-			VASSERT_NO_THROW("non-strict mode", parser->readResponse(*tag));
+			VASSERT_NO_THROW("non-strict mode", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 		}
 	}
 
@@ -373,7 +374,7 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			parser->setTimeoutHandler(toh);
 			parser->setStrict(false);
 
-			VASSERT_NO_THROW("non-strict mode", parser->readResponse(*tag));
+			VASSERT_NO_THROW("non-strict mode", std::unique_ptr <vmime::net::imap::IMAPParser::response>(parser->readResponse(*tag)));
 		}
 	}
 
@@ -686,6 +687,49 @@ VMIME_TEST_SUITE_BEGIN(IMAPParserTest)
 			VASSERT("id response", resp->continue_req_or_response_data[0]->response_data->id_response);
 			VASSERT_EQ("params size", 0, resp->continue_req_or_response_data[0]->response_data->id_response->params.size());
 		}
+	}
+
+	// Keywords must be compared with the classic locale: in a Turkish
+	// locale, the lower case of "I" (eg. in "CAPABILITY") is not "i"
+	void testKeywords_TurkishLocale() {
+
+		turkishCaseLocale loc;
+
+		const char* respText =
+			"* CAPABILITY IMAP4rev1 IDLE\r\n"
+			"a001 OK [UIDVALIDITY 42] Done\r\n";
+
+		auto socket = vmime::make_shared <testSocket>();
+		auto toh = vmime::make_shared <testTimeoutHandler>();
+
+		auto tag = vmime::make_shared <vmime::net::imap::IMAPTag>();
+
+		socket->localSend(respText);
+
+		auto parser = vmime::make_shared <vmime::net::imap::IMAPParser>();
+
+		parser->setSocket(socket);
+		parser->setTimeoutHandler(toh);
+		parser->setStrict(true);
+
+		std::unique_ptr <vmime::net::imap::IMAPParser::response> resp;
+
+		VASSERT_NO_THROW("parse", resp.reset(parser->readResponse(*tag)));
+
+		VASSERT_EQ("resp size", 1, resp->continue_req_or_response_data.size());
+		VASSERT("resp data", resp->continue_req_or_response_data[0]->response_data);
+		VASSERT("capability data", resp->continue_req_or_response_data[0]->response_data->capability_data);
+		VASSERT_EQ(
+			"capabilities",
+			2,
+			resp->continue_req_or_response_data[0]->response_data->capability_data->capabilities.size()
+		);
+
+		const auto* code = resp->response_done->response_tagged->resp_cond_state->resp_text->resp_text_code.get();
+
+		VASSERT("resp text code", code);
+		VASSERT_EQ("UIDVALIDITY", vmime::net::imap::IMAPParser::resp_text_code::UIDVALIDITY, code->type);
+		VASSERT_EQ("UIDVALIDITY value", 42, code->nz_number->value);
 	}
 
 VMIME_TEST_SUITE_END

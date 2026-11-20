@@ -26,6 +26,7 @@
 #include "vmime/utility/inputStreamStringAdapter.hpp"
 #include "vmime/utility/outputStreamAdapter.hpp"
 #include "vmime/utility/streamUtils.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -115,7 +116,7 @@ void stringContentHandler::generate(
 
 			utility::inputStreamStringAdapter in(m_string);
 
-			std::ostringstream oss;
+			utility::details::classicOStringStream oss;
 			utility::outputStreamAdapter tempOut(oss);
 
 			theDecoder->decode(in, tempOut);
@@ -219,7 +220,7 @@ void stringContentHandler::setContentTypeHint(const mediaType& type) {
 }
 
 
-const mediaType stringContentHandler::getContentTypeHint() const {
+mediaType stringContentHandler::getContentTypeHint() const {
 
 	return m_contentType;
 }

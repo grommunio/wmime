@@ -26,6 +26,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <locale>
 
 
 // VMime
@@ -296,8 +297,8 @@ public:
 
 	unsigned int getStatus() const;
 
-	const vmime::string getPeerName() const;
-	const vmime::string getPeerAddress() const;
+	vmime::string getPeerName() const;
+	vmime::string getPeerAddress() const;
 
 	vmime::shared_ptr <vmime::net::timeoutHandler> getTimeoutHandler();
 
@@ -377,7 +378,7 @@ public:
 
 	void onDataReceived();
 
-	const vmime::string getNextLine();
+	vmime::string getNextLine();
 	bool haveMoreLines() const;
 
 	virtual void processCommand() = 0;
@@ -450,9 +451,87 @@ protected:
 };
 
 
+/** Tracer which records the lines sent and received.
+  */
+class recordingTracer : public vmime::net::tracer {
+
+public:
+
+	void traceSend(const vmime::string& line);
+	void traceReceive(const vmime::string& line);
+
+	const std::vector <vmime::string>& getSentLines() const;
+	const std::vector <vmime::string>& getReceivedLines() const;
+
+private:
+
+	std::vector <vmime::string> m_sentLines;
+	std::vector <vmime::string> m_receivedLines;
+};
+
+
+/** Tracer factory which returns the same recordingTracer for
+  * all connections.
+  */
+class recordingTracerFactory : public vmime::net::tracerFactory {
+
+public:
+
+	recordingTracerFactory();
+
+	vmime::shared_ptr <vmime::net::tracer> create(
+		const vmime::shared_ptr <vmime::net::service>& serv,
+		const int connectionId
+	);
+
+	vmime::shared_ptr <recordingTracer> getTracer() const;
+
+private:
+
+	vmime::shared_ptr <recordingTracer> m_tracer;
+};
+
+
+/** Sets a global C++ locale which groups digits when formatting
+  * numbers (eg. "12 288"), and restores the previous global locale
+  * on destruction. Used to check that numbers are formatted with
+  * the classic locale.
+  */
+class digitGroupingLocale {
+
+public:
+
+	digitGroupingLocale();
+	~digitGroupingLocale();
+
+private:
+
+	std::locale m_previousLocale;
+};
+
+
+/** Sets a global C++ locale which converts case as a Turkish locale
+  * (ISO-8859-9): the lower case of "I" is the dotless "i", and the upper
+  * case of "i" is the dotted "I". Restores the previous global locale on
+  * destruction. Used to check that keywords are compared with the classic
+  * locale.
+  */
+class turkishCaseLocale {
+
+public:
+
+	turkishCaseLocale();
+	~turkishCaseLocale();
+
+private:
+
+	std::locale m_previousLocale;
+};
+
+
 // Exception helper
 std::ostream& operator<<(std::ostream& os, const vmime::exception& e);
 
 
 // Conversion to hexadecimal for easier debugging
-const vmime::string toHex(const vmime::string str);
+vmime::string toHex(const vmime::string& str);

@@ -24,6 +24,39 @@
 #include "tests/testUtils.hpp"
 
 
+// Seekable stream which counts the bytes read from it
+class readCountingInputStream : public vmime::utility::seekableInputStream {
+
+public:
+
+	readCountingInputStream(const vmime::string& str)
+		: m_stream(str), m_readCount(0) {
+
+	}
+
+	bool eof() const { return m_stream.eof(); }
+	void reset() { m_stream.reset(); }
+	size_t skip(const size_t count) { return m_stream.skip(count); }
+	size_t getPosition() const { return m_stream.getPosition(); }
+	void seek(const size_t pos) { m_stream.seek(pos); }
+
+	size_t read(vmime::byte_t* const data, const size_t count) {
+
+		const size_t n = m_stream.read(data, count);
+		m_readCount += n;
+
+		return n;
+	}
+
+	size_t getReadCount() const { return m_readCount; }
+
+private:
+
+	vmime::utility::inputStreamStringAdapter m_stream;
+	size_t m_readCount;
+};
+
+
 VMIME_TEST_SUITE_BEGIN(bodyPartTest)
 
 	VMIME_TEST_LIST_BEGIN
@@ -39,11 +72,16 @@ VMIME_TEST_SUITE_BEGIN(bodyPartTest)
 		VMIME_TEST(testGenerate7bit)
 		VMIME_TEST(testTextUsageForQPEncoding)
 		VMIME_TEST(testParseVeryBigMessage)
+		VMIME_TEST(testParseHeaderDoesNotReadBody)
 		VMIME_TEST(testParseBoundaryPrefix)
+		VMIME_TEST(testParseMissingLastBoundaryAtEnd)
+		VMIME_TEST(testParseMissingLastBoundaryInSubPart)
+		VMIME_TEST(testParseMaxNestingDepth)
+		VMIME_TEST(testParseDeeplyNestedParts)
 	VMIME_TEST_LIST_END
 
 
-	static const vmime::string extractComponentString(
+	static vmime::string extractComponentString(
 		const vmime::string& buffer,
 		const vmime::component& c
 	) {
@@ -54,7 +92,7 @@ VMIME_TEST_SUITE_BEGIN(bodyPartTest)
 		);
 	}
 
-	static const vmime::string extractContents(
+	static vmime::string extractContents(
 		const vmime::shared_ptr <const vmime::contentHandler>& cts
 	) {
 
@@ -62,6 +100,32 @@ VMIME_TEST_SUITE_BEGIN(bodyPartTest)
 		vmime::utility::outputStreamAdapter os(oss);
 
 		cts->extract(os);
+
+		return oss.str();
+	}
+
+	// Returns a message whose innermost part, which contains "LEAF",
+	// is at the specified depth
+	static vmime::string buildNestedMessage(const size_t depth) {
+
+		std::ostringstream oss;
+
+		for (size_t i = 0 ; i < depth ; ++i) {
+
+			oss << "Content-Type: multipart/mixed; boundary=\"b" << i << "\"\r\n"
+			    << "\r\n"
+			    << "--b" << i << "\r\n";
+		}
+
+		oss << "Content-Type: text/plain\r\n"
+		    << "\r\n"
+		    << "LEAF";
+
+		for (size_t i = depth ; i > 0 ; --i) {
+			oss << "\r\n--b" << (i - 1) << "--";
+		}
+
+		oss << "\r\n";
 
 		return oss.str();
 	}
@@ -305,6 +369,28 @@ VMIME_TEST_SUITE_BEGIN(bodyPartTest)
 		VASSERT_EQ("part2-body", "BODY2", extractContents(p.getBody()->getPartAt(1)->getBody()->getContents()));
 	}
 
+	void testParseHeaderDoesNotReadBody() {
+
+		// When parsing from a stream, the body which follows the header
+		// should not be read (nor copied) to parse the header
+		const vmime::string body(1024 * 1024, 'x');
+		const vmime::string str =
+			"Content-Type: application/octet-stream\r\n"
+			"Content-Transfer-Encoding: binary\r\n"
+			"\r\n"
+			+ body;
+
+		vmime::shared_ptr <readCountingInputStream> is =
+			vmime::make_shared <readCountingInputStream>(str);
+
+		vmime::bodyPart p;
+		p.parse(is, str.length());
+
+		VASSERT_EQ("field-count", 2, p.getHeader()->getFieldCount());
+		VASSERT_EQ("body-length", body.length(), p.getBody()->getContents()->getLength());
+		VASSERT("read-count", is->getReadCount() < 4096);
+	}
+
 	void testParseVeryBigMessage() {
 
 		// When parsing from a seekable input stream, body contents should not
@@ -409,6 +495,107 @@ VMIME_TEST_SUITE_BEGIN(bodyPartTest)
 		VASSERT_EQ("part1.1-body", "P11", extractContents(altbd->getPartAt(0)->getBody()->getContents()));
 		VASSERT_EQ("part1.2-body", "P12", extractContents(altbd->getPartAt(1)->getBody()->getContents()));
 		VASSERT_EQ("part2-body", "P2", extractContents(relbd->getPartAt(1)->getBody()->getContents()));
+	}
+
+	void testParseMissingLastBoundaryAtEnd() {
+
+		// No empty part should be created after the last boundary
+		vmime::string str =
+			"Content-Type: multipart/mixed; boundary=\"MY-BOUNDARY\""
+			"\r\n\r\n"
+			"--MY-BOUNDARY\r\nHEADER1\r\n\r\nBODY1\r\n"
+			"--MY-BOUNDARY\r\n";
+
+		vmime::bodyPart p;
+		p.parse(str);
+
+		VASSERT_EQ("count", 1, p.getBody()->getPartCount());
+
+		VASSERT_EQ("part1-body", "BODY1", extractContents(p.getBody()->getPartAt(0)->getBody()->getContents()));
+	}
+
+	void testParseMissingLastBoundaryInSubPart() {
+
+		// The boundary of the sub-part found after the end of the
+		// enclosing part must not be taken into account
+		vmime::string str =
+			"Content-Type: multipart/mixed; boundary=\"OUTER\"\r\n"
+			"\r\n"
+			"--OUTER\r\n"
+			"Content-Type: multipart/mixed; boundary=\"INNER\"\r\n"
+			"\r\n"
+			"--INNER\r\n"
+			"\r\n"
+			"BODY1\r\n"
+			"--OUTER--\r\n"
+			"--INNER\r\n"
+			"\r\n"
+			"EPILOG\r\n";
+
+		vmime::bodyPart p;
+		p.parse(str);
+
+		VASSERT_EQ("count", 1, p.getBody()->getPartCount());
+
+		vmime::shared_ptr <vmime::body> inner = p.getBody()->getPartAt(0)->getBody();
+
+		VASSERT_EQ("inner-count", 1, inner->getPartCount());
+		VASSERT_EQ("inner-part-body", "BODY1", extractContents(inner->getPartAt(0)->getBody()->getContents()));
+	}
+
+	void testParseMaxNestingDepth() {
+
+		vmime::parsingContext ctx;
+		ctx.setMaxNestingDepth(3);
+
+		vmime::bodyPart p;
+		p.parse(ctx, buildNestedMessage(4));
+
+		vmime::shared_ptr <vmime::body> body = p.getBody();
+
+		for (size_t depth = 1 ; depth <= 3 ; ++depth) {
+
+			VASSERT_EQ("count", 1, body->getPartCount());
+
+			body = body->getPartAt(0)->getBody();
+		}
+
+		// Part at maximum depth is not split, contents are kept as is
+		VASSERT_EQ("max-depth-count", 0, body->getPartCount());
+		VASSERT_EQ(
+			"max-depth-contents",
+			"--b3\r\nContent-Type: text/plain\r\n\r\nLEAF\r\n--b3--",
+			extractContents(body->getContents())
+		);
+
+		VASSERT("generate", p.generate().find("\r\nLEAF\r\n--b3--\r\n") != vmime::string::npos);
+	}
+
+	void testParseDeeplyNestedParts() {
+
+		// Would exhaust the stack if depth was not limited
+		vmime::parsingContext ctx;
+
+		VASSERT_EQ("default-max-depth", 100, ctx.getMaxNestingDepth());
+
+		vmime::bodyPart p;
+		p.parse(ctx, buildNestedMessage(10000));
+
+		vmime::shared_ptr <vmime::body> body = p.getBody();
+
+		for (size_t depth = 1 ; depth <= 100 ; ++depth) {
+
+			VASSERT_EQ("count", 1, body->getPartCount());
+
+			body = body->getPartAt(0)->getBody();
+		}
+
+		VASSERT_EQ("max-depth-count", 0, body->getPartCount());
+
+		const vmime::string contents = extractContents(body->getContents());
+
+		VASSERT_EQ("max-depth-contents-begin", "--b100\r\n", contents.substr(0, 8));
+		VASSERT_EQ("max-depth-contents-end", "\r\n--b100--", contents.substr(contents.length() - 10));
 	}
 
 VMIME_TEST_SUITE_END

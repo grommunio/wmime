@@ -57,52 +57,39 @@ public:
 
 	void write(utility::outputStream& os, const Format format) const;
 
-	const byteArray getSerialNumber() const;
+	byteArray getSerialNumber() const;
 
-	const string getIssuerString() const;
-	bool checkIssuer(const shared_ptr <const X509Certificate>& issuer) const;
-
-	bool verify(const shared_ptr <const X509Certificate>& caCert) const;
+	string getIssuerString() const;
 
 	bool verifyHostName(
 		const string& hostname,
 		std::vector <std::string>* nonMatchingNames = NULL
 	) const;
 
-	const datetime getExpirationDate() const;
-	const datetime getActivationDate() const;
+	datetime getExpirationDate() const;
+	datetime getActivationDate() const;
 
-	const byteArray getFingerprint(const DigestAlgorithm algo) const;
+	byteArray getFingerprint(const DigestAlgorithm algo) const;
 
 
 	static shared_ptr <X509Certificate> importInternal(X509* cert);
 
 
 	// Implementation of 'certificate'
-	const byteArray getEncoded() const;
-	const string getType() const;
+	byteArray getEncoded() const;
+	string getType() const;
 	int getVersion() const;
 	bool equals(const shared_ptr <const certificate>& other) const;
 	void* getInternalData();
 
 private:
 
-	/** Internal utility function to test whether a hostname matches
-	  * the specified X509 Common Name (wildcard is supported).
-	  *
-	  * @param cnBuf pointer to buffer holding Common Name
-	  * @param host pointer to buffer holding host name
-	  * @return true if the hostname matches the Common Name, or
-	  * false otherwise
-	  */
-	static bool cnMatch(const char* cnBuf, const char* host);
-
 	/** Internal utility function to convert ASN1_TIME
 	 *  structs to vmime::datetime
 	 *
 	 *  @param pointer to ASN1_TIME struct to convert
 	 */
-	const datetime convertX509Date(void* time) const;
+	datetime convertX509Date(void* time) const;
 
 	struct OpenSSLX509CertificateInternalData* m_data;
 };

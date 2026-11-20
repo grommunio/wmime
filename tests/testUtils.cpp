@@ -74,13 +74,13 @@ unsigned int testSocket::getStatus() const {
 }
 
 
-const vmime::string testSocket::getPeerName() const {
+vmime::string testSocket::getPeerName() const {
 
 	return "test.vmime.org";
 }
 
 
-const vmime::string testSocket::getPeerAddress() const {
+vmime::string testSocket::getPeerAddress() const {
 
 	return "127.0.0.1";
 }
@@ -261,7 +261,7 @@ void lineBasedTestSocket::onDataReceived() {
 }
 
 
-const vmime::string lineBasedTestSocket::getNextLine() {
+vmime::string lineBasedTestSocket::getNextLine() {
 
 	const vmime::string line = m_lines.front();
 	m_lines.erase(m_lines.begin(), m_lines.begin() + 1);
@@ -368,6 +368,141 @@ void failingOutputStream::writeImpl(const vmime::byte_t* const /* data */, const
 }
 
 
+// recordingTracer
+
+void recordingTracer::traceSend(const vmime::string& line) {
+
+	m_sentLines.push_back(line);
+}
+
+
+void recordingTracer::traceReceive(const vmime::string& line) {
+
+	m_receivedLines.push_back(line);
+}
+
+
+const std::vector <vmime::string>& recordingTracer::getSentLines() const {
+
+	return m_sentLines;
+}
+
+
+const std::vector <vmime::string>& recordingTracer::getReceivedLines() const {
+
+	return m_receivedLines;
+}
+
+
+// recordingTracerFactory
+
+recordingTracerFactory::recordingTracerFactory()
+	: m_tracer(vmime::make_shared <recordingTracer>()) {
+
+}
+
+
+vmime::shared_ptr <vmime::net::tracer> recordingTracerFactory::create(
+	const vmime::shared_ptr <vmime::net::service>& /* serv */,
+	const int /* connectionId */
+) {
+
+	return m_tracer;
+}
+
+
+vmime::shared_ptr <recordingTracer> recordingTracerFactory::getTracer() const {
+
+	return m_tracer;
+}
+
+
+// digitGroupingLocale
+
+namespace {
+
+class digitGroupingNumpunct : public std::numpunct <char> {
+
+protected:
+
+	char do_thousands_sep() const {
+
+		return ' ';
+	}
+
+	std::string do_grouping() const {
+
+		return "\3";
+	}
+};
+
+}
+
+
+digitGroupingLocale::digitGroupingLocale()
+	: m_previousLocale(std::locale::global(std::locale(std::locale(), new digitGroupingNumpunct))) {
+
+}
+
+
+digitGroupingLocale::~digitGroupingLocale() {
+
+	std::locale::global(m_previousLocale);
+}
+
+
+// turkishCaseLocale
+
+namespace {
+
+class turkishCtype : public std::ctype <char> {
+
+protected:
+
+	char do_tolower(char c) const {
+
+		return c == 'I' ? '\xfd' : std::ctype <char>::do_tolower(c);
+	}
+
+	const char* do_tolower(char* low, const char* high) const {
+
+		for ( ; low < high ; ++low) {
+			*low = do_tolower(*low);
+		}
+
+		return high;
+	}
+
+	char do_toupper(char c) const {
+
+		return c == 'i' ? '\xdd' : std::ctype <char>::do_toupper(c);
+	}
+
+	const char* do_toupper(char* low, const char* high) const {
+
+		for ( ; low < high ; ++low) {
+			*low = do_toupper(*low);
+		}
+
+		return high;
+	}
+};
+
+}
+
+
+turkishCaseLocale::turkishCaseLocale()
+	: m_previousLocale(std::locale::global(std::locale(std::locale(), new turkishCtype))) {
+
+}
+
+
+turkishCaseLocale::~turkishCaseLocale() {
+
+	std::locale::global(m_previousLocale);
+}
+
+
 
 // Exception helper
 std::ostream& operator<<(std::ostream& os, const vmime::exception& e) {
@@ -426,7 +561,7 @@ std::ostream& operator<<(std::ostream& os, const vmime::exception& e) {
 }
 
 
-const vmime::string toHex(const vmime::string str) {
+vmime::string toHex(const vmime::string& str) {
 
 	static const char hexChars[] = "0123456789abcdef";
 

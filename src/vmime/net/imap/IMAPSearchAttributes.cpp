@@ -1,4 +1,5 @@
 #include "vmime/net/imap/IMAPSearchAttributes.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_MESSAGING_PROTO_IMAP
 
@@ -159,7 +160,6 @@ public:
 	tokenMessageSetEnumerator()
 		: m_first(true) {
 
-		m_oss.imbue(std::locale::classic());
 	}
 
 	void enumerateNumberMessageRange(const vmime::net::numberMessageRange& range) {
@@ -196,14 +196,14 @@ public:
 		m_first = false;
 	}
 
-	const std::string str() const {
+	std::string str() const {
 
 		return m_oss.str();
 	}
 
 private:
 
-	std::ostringstream m_oss;
+	utility::details::classicOStringStream m_oss;
 	bool m_first;
 };
 
@@ -554,8 +554,7 @@ std::vector <string> IMAPSearchAttributes::generate() const {
 
 	for (auto& token : m_andTokens) {
 
-		std::ostringstream key;
-		key.imbue(std::locale::classic());
+		utility::details::classicOStringStream key;
 
 		token->generate(key);
 

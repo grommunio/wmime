@@ -81,13 +81,21 @@ word::word(const string& buffer, const charset& charset, const string& lang)
 charset word::unencodedCharset(const parsingContext& ctx, const string& buffer) {
 
 	// Plain ASCII stays US-ASCII, so that it does not get encoded on output
-	if (ctx.getInternationalizedEmailSupport() &&
-	    utility::stringUtils::findFirstNonASCIIchar(buffer.begin(), buffer.end()) != string::npos) {
-
-		return charset(charsets::UTF_8);
+	if (utility::stringUtils::findFirstNonASCIIchar(buffer.begin(), buffer.end()) == string::npos) {
+		return charset(charsets::US_ASCII);
 	}
 
-	return charset(charsets::US_ASCII);
+	// Non-ASCII text in header fields is UTF-8 (RFC 6532, section 3.2).
+	// Text which is not, as found in messages which do not follow the
+	// standards, is in the fallback charset set by the application.
+	const charset utf8(charsets::UTF_8);
+	const charset fallback = ctx.getHeaderFallbackCharset();
+
+	if (fallback == utf8 || utf8.isValidText(buffer, NULL)) {
+		return utf8;
+	}
+
+	return fallback;
 }
 
 
@@ -124,24 +132,31 @@ shared_ptr <word> word::parseNext(
 	while (pos < end) {
 
 		// End of line: does not occur in the middle of an encoded word. This is
-		// used to remove folding white-spaces from unencoded text.
+		// used to unfold unencoded text: only the CRLF is removed, the white-space
+		// which follows it is part of the text (RFC 5322 §2.2.3).
 		if (buffer[pos] == '\n') {
 
 			size_t endPos = pos;
 
-			if (pos > position && buffer[pos - 1] == '\r') {
-				++pos;
+			if (pos > startPos && buffer[pos - 1] == '\r') {
 				--endPos;
-			}
-
-			while (pos != end && parserHelpers::isSpace(buffer[pos])) {
-				++pos;
 			}
 
 			unencoded += buffer.substr(startPos, endPos - startPos);
 
-			if (pos != end) {  // ignore white-spaces at end
-				unencoded += ' ';
+			++pos;  // skip LF
+
+			// Not a fold: replace the line break and the white-spaces
+			// after it with a single space, or ignore them at end
+			if (pos == end || !parserHelpers::isSpaceOrTab(buffer[pos])) {
+
+				while (pos != end && parserHelpers::isSpace(buffer[pos])) {
+					++pos;
+				}
+
+				if (pos != end) {
+					unencoded += ' ';
+				}
 			}
 
 			startPos = pos;
@@ -265,7 +280,7 @@ shared_ptr <word> word::parseNext(
 }
 
 
-const std::vector <shared_ptr <word> > word::parseMultiple(
+std::vector <shared_ptr <word> > word::parseMultiple(
 	parsingContext& ctx,
 	const string& buffer,
 	const size_t position,
@@ -407,8 +422,13 @@ void word::parseWithState(
 							const size_t theoricalEncodedLen =
 								((decodedLen + ((decodedLen % 3) ? (3 - (decodedLen % 3)) : 0) ) / 3) * 4;
 
-							if (state && actualEncodedLen != theoricalEncodedLen) {
-								state->undecodedBytes.assign(dataPos + theoricalEncodedLen, dataEnd);
+							// Both lengths are of encodedBuffer, which may start with the
+							// previous word's leftover, so the rest must come from it too:
+							// offset from dataPos it can run past dataEnd. Only carry over
+							// an incomplete quantum, not what follows padding.
+							if (state && actualEncodedLen > theoricalEncodedLen &&
+							    actualEncodedLen - theoricalEncodedLen < 4) {
+								state->undecodedBytes = encodedBuffer.substr(theoricalEncodedLen);
 							}
 						}
 
@@ -1111,7 +1131,7 @@ bool word::isEquivalent(const word& other) const {
 }
 
 
-const string word::getConvertedText(
+string word::getConvertedText(
 	const charset& dest,
 	const charsetConverterOptions& opts
 ) const {
@@ -1155,7 +1175,7 @@ void word::setCharset(const charset& ch) {
 }
 
 
-const string word::getLanguage() const {
+string word::getLanguage() const {
 
 	return m_lang;
 }
@@ -1191,7 +1211,7 @@ void word::setBuffer(const string& buffer) {
 }
 
 
-const std::vector <shared_ptr <component> > word::getChildComponents() {
+std::vector <shared_ptr <component> > word::getChildComponents() {
 
 	return std::vector <shared_ptr <component> >();
 }

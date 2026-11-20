@@ -22,6 +22,7 @@
 //
 
 #include "vmime/bodyPartAttachment.hpp"
+#include "vmime/attachmentHelper.hpp"
 
 
 namespace vmime {
@@ -33,7 +34,7 @@ bodyPartAttachment::bodyPartAttachment(const shared_ptr <const bodyPart>& part)
 }
 
 
-const mediaType bodyPartAttachment::getType() const {
+mediaType bodyPartAttachment::getType() const {
 
 	shared_ptr <const contentTypeField> ctf = getContentType();
 
@@ -52,37 +53,13 @@ const mediaType bodyPartAttachment::getType() const {
 }
 
 
-const word bodyPartAttachment::getName() const {
+word bodyPartAttachment::getName() const {
 
-	word name;
-
-	// Try the 'filename' parameter of 'Content-Disposition' field
-	shared_ptr <const contentDispositionField> cdf = getContentDisposition();
-
-	if (cdf && cdf->hasFilename()) {
-
-		name = cdf->getFilename();
-
-	// Try the 'name' parameter of 'Content-Type' field
-	} else {
-
-		shared_ptr <const contentTypeField> ctf = getContentType();
-
-		if (ctf) {
-
-			shared_ptr <const parameter> prm = ctf->findParameter("name");
-
-			if (prm) {
-				name = prm->getValue();
-			}
-		}
-	}
-
-	return name;
+	return attachmentHelper::getAttachmentName(*getHeader());
 }
 
 
-const text bodyPartAttachment::getDescription() const {
+text bodyPartAttachment::getDescription() const {
 
 	text description;
 
@@ -102,13 +79,13 @@ const text bodyPartAttachment::getDescription() const {
 }
 
 
-const encoding bodyPartAttachment::getEncoding() const {
+encoding bodyPartAttachment::getEncoding() const {
 
 	return m_part->getBody()->getEncoding();
 }
 
 
-const shared_ptr <const contentHandler> bodyPartAttachment::getData() const {
+shared_ptr <const contentHandler> bodyPartAttachment::getData() const {
 
 	return m_part->getBody()->getContents();
 }
@@ -123,12 +100,6 @@ shared_ptr <const object> bodyPartAttachment::getPart() const {
 shared_ptr <const header> bodyPartAttachment::getHeader() const {
 
 	return m_part->getHeader();
-}
-
-
-shared_ptr <const contentDispositionField> bodyPartAttachment::getContentDisposition() const {
-
-	return getHeader()->findField <contentDispositionField>(fields::CONTENT_DISPOSITION);
 }
 
 

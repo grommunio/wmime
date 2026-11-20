@@ -40,6 +40,7 @@
 
 #include "vmime/net/socket.hpp"
 #include "vmime/net/timeoutHandler.hpp"
+#include "vmime/utility/details/classicIStringStream.hpp"
 
 
 namespace vmime {
@@ -123,7 +124,7 @@ shared_ptr <POP3Response> POP3Response::readMultilineResponse(
 	resp->m_code = getResponseCode(firstLine);
 	stripResponseCode(firstLine, resp->m_text);
 
-	std::istringstream iss(nextLines);
+	utility::details::classicIStringStream iss(nextLines);
 	string line;
 
 	if (resp->m_tracer) {
@@ -199,7 +200,7 @@ bool POP3Response::isSuccess() const {
 }
 
 
-const string POP3Response::getFirstLine() const {
+string POP3Response::getFirstLine() const {
 
 	return m_firstLine;
 }
@@ -211,13 +212,13 @@ POP3Response::ResponseCode POP3Response::getCode() const {
 }
 
 
-const string POP3Response::getText() const {
+string POP3Response::getText() const {
 
 	return m_text;
 }
 
 
-const string POP3Response::getLineAt(const size_t pos) const {
+string POP3Response::getLineAt(const size_t pos) const {
 
 	return m_lines[pos];
 }
@@ -444,6 +445,23 @@ size_t POP3Response::readResponseImpl(
 
 		// Inject the data into the output stream
 		os.write(buffer + skipped, read);
+	}
+
+	// The line terminator before the end-of-data marker belongs to the last
+	// line of data (RFC 1939, section 3), but it was removed with the marker:
+	// write it back, unless there is no data
+	if (current > line.length()) {
+
+		// The marker is "\r\n.\r\n" if sfis1 found it, or "\n.\n"
+		const string eol = sfis1.eof() ? "\r\n" : "\n";
+
+		os.write(eol.data(), eol.length());
+		current += eol.length();
+
+		if (progress) {
+			total = std::max(total, current);
+			progress->progress(current, total);
+		}
 	}
 
 	if (progress) {

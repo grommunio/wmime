@@ -28,13 +28,15 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/types.hpp"
 #include "vmime/base.hpp"
 
 #include "vmime/security/sasl/SASLMechanism.hpp"
+
+#include "vmime/utility/stringUtils.hpp"
 
 #include <map>
 
@@ -48,6 +50,8 @@ class SASLContext;
 
 
 /** Constructs SASL mechanism objects.
+  *
+  * Mechanism names are case-insensitive.
   */
 class VMIME_EXPORT SASLMechanismFactory : public object {
 
@@ -77,7 +81,12 @@ private:
 	};
 
 	typedef std::map <string, shared_ptr <registeredMechanism> > MapType;
+
+	/** Mechanisms registered using registerMechanism() */
 	MapType m_mechs;
+
+	/** Mechanisms built into VMime */
+	MapType m_builtinMechs;
 
 public:
 
@@ -93,13 +102,17 @@ public:
 
 		m_mechs.insert(
 			MapType::value_type(
-				name,
+				utility::stringUtils::toUpper(name),
 				vmime::make_shared <registeredMechanismImpl <MECH_CLASS> >()
 			)
 		);
 	}
 
 	/** Create a mechanism object given its name.
+	  *
+	  * Mechanisms registered using registerMechanism() take precedence
+	  * over the ones built into VMime, which take precedence over the
+	  * ones provided by the GNU SASL library.
 	  *
 	  * @param ctx SASL context
 	  * @param name mechanism name
@@ -110,12 +123,12 @@ public:
 	shared_ptr <SASLMechanism> create(const shared_ptr <SASLContext>& ctx, const string& name);
 
 	/** Return a list of supported mechanisms. This includes mechanisms
-	  * registered using registerMechanism() as well as the ones that
-	  * are built-in.
+	  * registered using registerMechanism(), the ones built into VMime
+	  * and the ones provided by the GNU SASL library.
 	  *
 	  * @return list of supported mechanisms
 	  */
-	const std::vector <string> getSupportedMechanisms() const;
+	std::vector <string> getSupportedMechanisms() const;
 
 	/** Test whether an authentication mechanism is supported.
 	  *
@@ -125,23 +138,15 @@ public:
 	  */
 	bool isMechanismSupported(const string& name) const;
 
-	/** Test whether an authentication mechanism is directly supported
-	  * by the underlying SASL library.
+	/** Test whether an authentication mechanism is built into VMime,
+	  * ie. implemented by VMime itself and available without having
+	  * to register it.
 	  *
 	  * @param name mechanism name
 	  * @return true if the specified mechanism is built-in,
 	  * or false otherwise
 	  */
 	bool isBuiltinMechanism(const string& name) const;
-
-private:
-
-#ifdef GSASL_VERSION
-	Gsasl* m_gsaslContext;
-#else
-	void* m_gsaslContext;
-#endif // GSASL_VERSION
-
 };
 
 
@@ -150,6 +155,6 @@ private:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES
 
 #endif // VMIME_SECURITY_SASL_SASLMECHANISMFACTORY_HPP_INCLUDED

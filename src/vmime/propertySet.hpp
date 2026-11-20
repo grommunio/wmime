@@ -34,6 +34,8 @@
 #include "vmime/exception.hpp"
 
 #include "vmime/utility/stringUtils.hpp"
+#include "vmime/utility/details/classicIStringStream.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -86,8 +88,7 @@ public:
 		  */
 		template <class TYPE> void setValue(const TYPE& value) {
 
-			std::ostringstream oss;
-			oss.imbue(std::locale::classic());  // no formatting
+			utility::details::classicOStringStream oss;
 
 			oss << value;
 
@@ -105,8 +106,7 @@ public:
 
 			TYPE val = TYPE();
 
-			std::istringstream iss(m_value);
-			iss.imbue(std::locale::classic());  // no formatting
+			utility::details::classicIStringStream iss(m_value);
 
 			iss >> val;
 
@@ -149,8 +149,7 @@ public:
 
 				int val = 0;
 
-				std::istringstream iss(m_value);
-				iss.imbue(std::locale::classic());  // no formatting
+				utility::details::classicIStringStream iss(m_value);
 
 				iss >> val;
 
@@ -192,7 +191,7 @@ protected:
 		}
 
 		template <class TYPE>
-		const TYPE getValue() const {
+		TYPE getValue() const {
 
 			return m_set->getProperty <TYPE>(m_name);
 		}
@@ -219,7 +218,7 @@ protected:
 		}
 
 		template <class TYPE>
-		const TYPE getValue() const {
+		TYPE getValue() const {
 
 			return m_set->getProperty <TYPE>(m_name);
 		}
@@ -277,7 +276,7 @@ public:
 	  * @return value of the specified property
 	  */
 	template <class TYPE>
-	const TYPE getProperty(const string& name) const {
+	TYPE getProperty(const string& name) const {
 
 		const shared_ptr <property> prop = find(name);
 		if (!prop) throw exceptions::no_such_property(name);
@@ -295,7 +294,7 @@ public:
 	  * if if does not exist
 	  */
 	template <class TYPE>
-	const TYPE getProperty(const string& name, const TYPE defaultValue) const {
+	TYPE getProperty(const string& name, const TYPE defaultValue) const {
 
 		const shared_ptr <property> prop = find(name);
 		return prop ? prop->template getValue <TYPE>() : defaultValue;
@@ -329,7 +328,7 @@ public:
 	  * @throw exceptions::no_such_property if the property does not exist
 	  * @return read-only proxy object for the specified property
 	  */
-	const constPropertyProxy operator[](const string& name) const;
+	constPropertyProxy operator[](const string& name) const;
 
 private:
 
@@ -365,8 +364,7 @@ public:
 
 		TYPE v = TYPE();
 
-		std::istringstream iss(value);
-		iss.imbue(std::locale::classic());  // no formatting
+		utility::details::classicIStringStream iss(value);
 
 		iss >> v;
 
@@ -376,8 +374,7 @@ public:
 	template <typename TYPE>
 	static string valueToString(const TYPE& value) {
 
-		std::ostringstream oss(value);
-		oss.imbue(std::locale::classic());  // no formatting
+		utility::details::classicOStringStream oss;
 
 		oss << value;
 
@@ -409,8 +406,7 @@ public:
 
 			int val = 0;
 
-			std::istringstream iss(value);
-			iss.imbue(std::locale::classic());  // no formatting
+			utility::details::classicIStringStream iss(value);
 
 			iss >> val;
 
@@ -430,13 +426,13 @@ public:
 	  *
 	  * @return list of properties
 	  */
-	const std::vector <shared_ptr <const property> > getPropertyList() const;
+	std::vector <shared_ptr <const property> > getPropertyList() const;
 
 	/** Return the property list.
 	  *
 	  * @return list of properties
 	  */
-	const std::vector <shared_ptr <property> > getPropertyList();
+	std::vector <shared_ptr <property> > getPropertyList();
 };
 
 

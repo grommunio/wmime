@@ -28,7 +28,7 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/types.hpp"
@@ -52,7 +52,7 @@ public:
 	  *
 	  * @return mechanism name
 	  */
-	virtual const string getName() const = 0;
+	virtual string getName() const = 0;
 
 	/** Perform one step of SASL authentication. Accept data from the
 	  * server (challenge), process it and return data to be returned
@@ -98,6 +98,17 @@ public:
 	  * false otherwise
 	  */
 	virtual bool hasInitialResponse() const = 0;
+
+	/** Determine if this mechanism sends the credentials in a form that
+	  * anyone able to see the exchange can use (eg. PLAIN, LOGIN or
+	  * XOAUTH2). Such a mechanism must not be used on a connection which
+	  * is not secured, unless explicitly allowed (see
+	  * SASLContext::setPlaintextAllowed()).
+	  *
+	  * @return true if this mechanism sends the credentials in clear
+	  * text, or false otherwise
+	  */
+	virtual bool isPlaintext() const = 0;
 
 	/** Encode data according to negotiated SASL mechanism. This
 	  * might mean that data is integrity or privacy protected.
@@ -148,6 +159,6 @@ public:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES
 
 #endif // VMIME_SECURITY_SASL_SASLMECHANISM_HPP_INCLUDED

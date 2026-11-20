@@ -30,6 +30,7 @@
 #include "vmime/net/imap/IMAPCommand.hpp"
 #include "vmime/net/imap/IMAPConnection.hpp"
 #include "vmime/net/imap/IMAPUtils.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <sstream>
 
@@ -50,13 +51,11 @@ IMAPCommand::IMAPCommand(const string& text, const string& traceText)
 // static
 shared_ptr <IMAPCommand> IMAPCommand::LOGIN(const string& username, const string& password) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "LOGIN " << IMAPUtils::quoteString(username)
 	    << " " << IMAPUtils::quoteString(password);
 
-	std::ostringstream trace;
-	trace.imbue(std::locale::classic());
+	utility::details::classicOStringStream trace;
 	trace << "LOGIN {username} {password}";
 
 	return createCommand(cmd.str(), trace.str());
@@ -66,8 +65,7 @@ shared_ptr <IMAPCommand> IMAPCommand::LOGIN(const string& username, const string
 // static
 shared_ptr <IMAPCommand> IMAPCommand::AUTHENTICATE(const string& mechName) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "AUTHENTICATE " << mechName;
 
 	return createCommand(cmd.str());
@@ -77,19 +75,20 @@ shared_ptr <IMAPCommand> IMAPCommand::AUTHENTICATE(const string& mechName) {
 // static
 shared_ptr <IMAPCommand> IMAPCommand::AUTHENTICATE(const string& mechName, const string& initialResponse) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "AUTHENTICATE " << mechName << " " << initialResponse;
 
-	return createCommand(cmd.str());
+	utility::details::classicOStringStream trace;
+	trace << "AUTHENTICATE " << mechName << " {initial-response}";
+
+	return createCommand(cmd.str(), trace.str());
 }
 
 
 // static
 shared_ptr <IMAPCommand> IMAPCommand::LIST(const string& refName, const string& mailboxName) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "LIST " << IMAPUtils::quoteString(refName)
 	    << " " << IMAPUtils::quoteString(mailboxName);
 
@@ -104,8 +103,7 @@ shared_ptr <IMAPCommand> IMAPCommand::SELECT(
 	const std::vector <string>& params
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 
 	if (readOnly) {
 		cmd << "EXAMINE ";
@@ -137,8 +135,7 @@ shared_ptr <IMAPCommand> IMAPCommand::STATUS(
 	const std::vector <string>& attribs
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "STATUS " << IMAPUtils::quoteString(mailboxName);
 
 	cmd << " (";
@@ -160,8 +157,7 @@ shared_ptr <IMAPCommand> IMAPCommand::CREATE(
 	const std::vector <string>& params
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "CREATE " << IMAPUtils::quoteString(mailboxName);
 
 	if (!params.empty()) {
@@ -183,8 +179,7 @@ shared_ptr <IMAPCommand> IMAPCommand::CREATE(
 // static
 shared_ptr <IMAPCommand> IMAPCommand::DELETE(const string& mailboxName) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "DELETE " << IMAPUtils::quoteString(mailboxName);
 
 	return createCommand(cmd.str());
@@ -197,8 +192,7 @@ shared_ptr <IMAPCommand> IMAPCommand::RENAME(
 	const string& newMailboxName
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "RENAME " << IMAPUtils::quoteString(mailboxName)
 	    << " " << IMAPUtils::quoteString(newMailboxName);
 
@@ -212,8 +206,7 @@ shared_ptr <IMAPCommand> IMAPCommand::FETCH(
 	const std::vector <string>& params
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 
 	if (msgs.isUIDSet()) {
 		cmd << "UID FETCH " << IMAPUtils::messageSetToSequenceSet(msgs);
@@ -248,8 +241,7 @@ shared_ptr <IMAPCommand> IMAPCommand::STORE(
 	const std::vector <string>& flags
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 
 	if (msgs.isUIDSet()) {
 		cmd << "UID STORE " << IMAPUtils::messageSetToSequenceSet(msgs);
@@ -286,8 +278,7 @@ shared_ptr <IMAPCommand> IMAPCommand::APPEND(
 	const size_t size
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "APPEND " << IMAPUtils::quoteString(mailboxName);
 
 	if (!flags.empty()) {
@@ -318,8 +309,7 @@ shared_ptr <IMAPCommand> IMAPCommand::COPY(
 	const string& mailboxName
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 
 	if (msgs.isUIDSet()) {
 		cmd << "UID COPY " << IMAPUtils::messageSetToSequenceSet(msgs);
@@ -339,8 +329,7 @@ shared_ptr <IMAPCommand> IMAPCommand::SEARCH(
 	const vmime::charset* charset
 ) {
 
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "SEARCH";
 
 	if (charset) {
@@ -359,8 +348,7 @@ shared_ptr <IMAPCommand> IMAPCommand::UIDSEARCH(
     const vmime::charset* charset
 ) {
 
-    std::ostringstream cmd;
-    cmd.imbue(std::locale::classic());
+    utility::details::classicOStringStream cmd;
     cmd << "UID SEARCH";
 
     if (charset) {
@@ -421,8 +409,7 @@ shared_ptr <IMAPCommand> IMAPCommand::ID(const std::map <string, string>& params
 
 	// id             ::= "ID" SPACE id_params_list
 	// id_params_list ::= "(" #(string SPACE nstring) ")" / nil
-	std::ostringstream cmd;
-	cmd.imbue(std::locale::classic());
+	utility::details::classicOStringStream cmd;
 	cmd << "ID ";
 
 	if (params.empty()) {
@@ -460,13 +447,13 @@ shared_ptr <IMAPCommand> IMAPCommand::createCommand(
 }
 
 
-const string IMAPCommand::getText() const {
+string IMAPCommand::getText() const {
 
 	return m_text;
 }
 
 
-const string IMAPCommand::getTraceText() const {
+string IMAPCommand::getTraceText() const {
 
 	return m_traceText;
 }

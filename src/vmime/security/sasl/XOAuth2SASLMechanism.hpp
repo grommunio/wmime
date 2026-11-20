@@ -28,7 +28,7 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/security/sasl/SASLMechanism.hpp"
@@ -52,7 +52,7 @@ public:
 	~XOAuth2SASLMechanism();
 
 
-	const string getName() const;
+	string getName() const;
 
 	bool step(
 		const shared_ptr <SASLSession>& sess,
@@ -65,6 +65,8 @@ public:
 	bool isComplete() const;
 
 	bool hasInitialResponse() const;
+
+	bool isPlaintext() const;
 
 	void encode(
 		const shared_ptr <SASLSession>& sess,
@@ -84,11 +86,17 @@ public:
 
 private:
 
+	enum State {
+		STATE_INITIAL,        /**< Initial client response not sent yet. */
+		STATE_RESPONSE_SENT,  /**< Initial client response sent. */
+		STATE_ERROR_RECEIVED  /**< Error received from the server, and acknowledged. */
+	};
+
 	/** SASL context */
 	shared_ptr <SASLContext> m_context;
 
 	/** Authentication process status. */
-	bool m_complete;
+	State m_state;
 };
 
 
@@ -97,6 +105,6 @@ private:
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES
 
 #endif // VMIME_SECURITY_SASL_XOAUTH2SASLMECHANISM_HPP_INCLUDED

@@ -49,15 +49,14 @@ public:
 
 	struct props {
 		// IMAP-specific options
-#if VMIME_HAVE_SASL_SUPPORT
 		serviceInfos::property PROPERTY_OPTIONS_SASL;
 		serviceInfos::property PROPERTY_OPTIONS_SASL_FALLBACK;
-#endif // VMIME_HAVE_SASL_SUPPORT
 		serviceInfos::property PROPERTY_OPTIONS_ID;
 
 		// Common properties
 		serviceInfos::property PROPERTY_AUTH_USERNAME;
 		serviceInfos::property PROPERTY_AUTH_PASSWORD;
+		serviceInfos::property PROPERTY_AUTH_ALLOW_PLAINTEXT;
 
 #if VMIME_HAVE_TLS_SUPPORT
 		serviceInfos::property PROPERTY_CONNECTION_TLS;
@@ -70,8 +69,8 @@ public:
 
 	const props& getProperties() const;
 
-	const string getPropertyPrefix() const;
-	const std::vector <serviceInfos::property> getAvailableProperties() const;
+	string getPropertyPrefix() const;
+	std::vector <serviceInfos::property> getAvailableProperties() const;
 
 private:
 

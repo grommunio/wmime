@@ -35,6 +35,7 @@
 
 #include "vmime/utility/outputStreamAdapter.hpp"
 #include "vmime/utility/inputStreamStringAdapter.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 namespace vmime {
 namespace net {
@@ -83,15 +84,15 @@ void IMAPMessagePartContentHandler::generate(
 		if (m_encoding != enc) {
 
 			// Extract part contents to temporary buffer
-			std::ostringstream oss;
+			utility::details::classicOStringStream oss;
 			utility::outputStreamAdapter tmp(oss);
 
-			msg->extractPart(part, tmp, NULL);
+			msg->extractImpl(part, tmp, NULL, 0, -1, IMAPMessage::EXTRACT_BODY);
 
 			// Decode to another temporary buffer
 			utility::inputStreamStringAdapter in(oss.str());
 
-			std::ostringstream oss2;
+			utility::details::classicOStringStream oss2;
 			utility::outputStreamAdapter tmp2(oss2);
 
 			shared_ptr <utility::encoder::encoder> theDecoder = m_encoding.getEncoder();
@@ -110,17 +111,17 @@ void IMAPMessagePartContentHandler::generate(
 		// No encoding to perform
 		} else {
 
-			msg->extractPart(part, os);
+			msg->extractImpl(part, os, NULL, 0, -1, IMAPMessage::EXTRACT_BODY);
 		}
 
 	// Need to encode data before
 	} else {
 
 		// Extract part contents to temporary buffer
-		std::ostringstream oss;
+		utility::details::classicOStringStream oss;
 		utility::outputStreamAdapter tmp(oss);
 
-		msg->extractPart(part, tmp, NULL);
+		msg->extractImpl(part, tmp, NULL, 0, -1, IMAPMessage::EXTRACT_BODY);
 
 		// Encode temporary buffer to output stream
 		shared_ptr <utility::encoder::encoder> theEncoder = enc.getEncoder();
@@ -154,7 +155,7 @@ void IMAPMessagePartContentHandler::extract(
 	} else {
 
 		// Extract part contents to temporary buffer
-		std::ostringstream oss;
+		utility::details::classicOStringStream oss;
 		utility::outputStreamAdapter tmp(oss);
 
 		msg->extractImpl(part, tmp, NULL, 0, -1, IMAPMessage::EXTRACT_BODY);
@@ -180,7 +181,7 @@ void IMAPMessagePartContentHandler::extractRaw(
 	if (!msg || !part)
 		throw exceptions::message_not_found();
 
-	msg->extractPart(part, os, progress);
+	msg->extractImpl(part, os, progress, 0, -1, IMAPMessage::EXTRACT_BODY);
 }
 
 
@@ -222,7 +223,7 @@ void IMAPMessagePartContentHandler::setContentTypeHint(const mediaType& type) {
 }
 
 
-const mediaType IMAPMessagePartContentHandler::getContentTypeHint() const {
+mediaType IMAPMessagePartContentHandler::getContentTypeHint() const {
 
 	return m_contentType;
 }

@@ -27,6 +27,8 @@
 
 #include "vmime/types.hpp"
 #include "vmime/base.hpp"
+#include "vmime/utility/details/classicIStringStream.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <sstream>
 #include <iostream>
@@ -48,7 +50,7 @@ public:
 	  * @param count number of bytes to use from buffer
 	  * @return a string object containing a copy of the specified data
 	  */
-	static const string makeStringFromBytes(const byte_t* data, const size_t count) {
+	static string makeStringFromBytes(const byte_t* data, const size_t count) {
 
 		return string(reinterpret_cast <const char*>(data), count);
 	}
@@ -56,15 +58,23 @@ public:
 	/** Makes a HEX string from byteArray.
 	  *
 	  * @param data byteArray containing data
-	  * @return a string object containing a hex copy of the specified data
+	  * @return a string object containing a hex copy of the specified data,
+	  * with two lower-case hex digits for each byte (eg. "0aff" for the bytes
+	  * 0x0a and 0xff)
 	  */
-	static const string makeHexStringFromBytes(const byteArray& data) {
-		std::stringstream ss;
-		for (const byte_t& b : data)
-		{
-			ss << std::hex << int(b);
+	static string makeHexStringFromBytes(const byteArray& data) {
+
+		static const char hexDigits[] = "0123456789abcdef";
+
+		string res;
+		res.reserve(data.size() * 2);
+
+		for (const byte_t b : data) {
+			res += hexDigits[b >> 4];
+			res += hexDigits[b & 0x0f];
 		}
-		return ss.str();
+
+		return res;
 	}
 
 	/** Casts a string to bytes.
@@ -141,7 +151,7 @@ public:
 	  * @param str the string to transform
 	  * @return a new string in lower-case
 	  */
-	static const string toLower(const string& str);
+	static string toLower(const string& str);
 
 	/** Transform all the characters in a string to upper-case.
 	  * \warning Use this with ASCII-only strings.
@@ -149,7 +159,7 @@ public:
 	  * @param str the string to transform
 	  * @return a new string in upper-case
 	  */
-	static const string toUpper(const string& str);
+	static string toUpper(const string& str);
 
 	/** Strip the space characters (SPC, TAB, CR, LF) at the beginning
 	  * and at the end of the specified string.
@@ -157,7 +167,7 @@ public:
 	  * @param str string in which to strip spaces
 	  * @return a new string with space characters removed
 	  */
-	static const string trim(const string& str);
+	static string trim(const string& str);
 
 	/** Return the number of 7-bit US-ASCII characters in a string.
 	  *
@@ -195,10 +205,9 @@ public:
 	  * @return value converted from type 'TYPE'
 	  */
 	template <class TYPE>
-	static const string toString(const TYPE& value) {
+	static string toString(const TYPE& value) {
 
-		std::ostringstream oss;
-		oss.imbue(std::locale::classic());
+		utility::details::classicOStringStream oss;
 
 		oss << value;
 
@@ -212,12 +221,11 @@ public:
 	  * @return value converted into type 'TYPE'
 	  */
 	template <class TYPE>
-	static const TYPE fromString(const string& value) {
+	static TYPE fromString(const string& value) {
 
 		TYPE ret;
 
-		std::istringstream iss(value);
-		iss.imbue(std::locale::classic());
+		utility::details::classicIStringStream iss(value);
 
 		iss >> ret;
 
@@ -229,7 +237,7 @@ public:
 	  * @param str string from which to remove quotes
 	  * @return unquoted string
 	  */
-	static const string unquote(const string& str);
+	static string unquote(const string& str);
 
 	/** Determines whether the specified string needs to be quoted.
 	  *

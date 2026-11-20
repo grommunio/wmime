@@ -79,7 +79,7 @@ int SMTPCommandError::statusCode() const {
 }
 
 
-const SMTPResponse::enhancedStatusCode SMTPCommandError::extendedStatusCode() const {
+SMTPResponse::enhancedStatusCode SMTPCommandError::extendedStatusCode() const {
 
 	return m_exStatus;
 }
@@ -201,6 +201,146 @@ exception* SMTPDSNExtensionNotSupportedException::clone() const {
 const char* SMTPDSNExtensionNotSupportedException::name() const throw() {
 
 	return "SMTPDSNExtensionNotSupportedException";
+}
+
+
+//
+// SMTPUTF8ExtensionNotSupportedException
+//
+
+SMTPUTF8ExtensionNotSupportedException::SMTPUTF8ExtensionNotSupportedException(const exception& other)
+	: SMTPExtensionNotSupportedException(
+		"RFC-6531 SMTPUTF8 extension is not supported by the SMTP server, "
+		"but is needed for non-ASCII addresses.", other) {
+
+}
+
+
+SMTPUTF8ExtensionNotSupportedException::~SMTPUTF8ExtensionNotSupportedException() throw() {
+
+}
+
+
+exception* SMTPUTF8ExtensionNotSupportedException::clone() const {
+	return new SMTPUTF8ExtensionNotSupportedException(*this);
+}
+
+
+const char* SMTPUTF8ExtensionNotSupportedException::name() const throw() {
+
+	return "SMTPUTF8ExtensionNotSupportedException";
+}
+
+
+//
+// SMTP8BITMIMEExtensionNotSupportedException
+//
+
+SMTP8BITMIMEExtensionNotSupportedException::SMTP8BITMIMEExtensionNotSupportedException(const exception& other)
+	: SMTPExtensionNotSupportedException(
+		"RFC-6152 8BITMIME extension is not supported by the SMTP server, "
+		"but is needed for 8-bit data.", other) {
+
+}
+
+
+SMTP8BITMIMEExtensionNotSupportedException::~SMTP8BITMIMEExtensionNotSupportedException() throw() {
+
+}
+
+
+exception* SMTP8BITMIMEExtensionNotSupportedException::clone() const {
+	return new SMTP8BITMIMEExtensionNotSupportedException(*this);
+}
+
+
+const char* SMTP8BITMIMEExtensionNotSupportedException::name() const throw() {
+
+	return "SMTP8BITMIMEExtensionNotSupportedException";
+}
+
+
+//
+// SMTPBINARYMIMEExtensionNotSupportedException
+//
+
+SMTPBINARYMIMEExtensionNotSupportedException::SMTPBINARYMIMEExtensionNotSupportedException(const exception& other)
+	: SMTPExtensionNotSupportedException(
+		"RFC-3030 BINARYMIME extension (with CHUNKING) is not supported by the "
+		"SMTP server, but is needed for binary data.", other) {
+
+}
+
+
+SMTPBINARYMIMEExtensionNotSupportedException::~SMTPBINARYMIMEExtensionNotSupportedException() throw() {
+
+}
+
+
+exception* SMTPBINARYMIMEExtensionNotSupportedException::clone() const {
+	return new SMTPBINARYMIMEExtensionNotSupportedException(*this);
+}
+
+
+const char* SMTPBINARYMIMEExtensionNotSupportedException::name() const throw() {
+
+	return "SMTPBINARYMIMEExtensionNotSupportedException";
+}
+
+
+//
+// SMTPUndeclaredBinaryDataException
+//
+
+SMTPUndeclaredBinaryDataException::SMTPUndeclaredBinaryDataException(const exception& other)
+	: net_exception(
+		"The message contains binary data, which must be declared "
+		"with SMTPSendOptions::setBinaryMessage().", other) {
+
+}
+
+
+SMTPUndeclaredBinaryDataException::~SMTPUndeclaredBinaryDataException() throw() {
+
+}
+
+
+exception* SMTPUndeclaredBinaryDataException::clone() const {
+	return new SMTPUndeclaredBinaryDataException(*this);
+}
+
+
+const char* SMTPUndeclaredBinaryDataException::name() const throw() {
+
+	return "SMTPUndeclaredBinaryDataException";
+}
+
+
+//
+// SMTPUndeclared8bitDataException
+//
+
+SMTPUndeclared8bitDataException::SMTPUndeclared8bitDataException(const exception& other)
+	: net_exception(
+		"The message contains 8-bit data, which must be declared "
+		"with SMTPSendOptions::set8bitMessage().", other) {
+
+}
+
+
+SMTPUndeclared8bitDataException::~SMTPUndeclared8bitDataException() throw() {
+
+}
+
+
+exception* SMTPUndeclared8bitDataException::clone() const {
+	return new SMTPUndeclared8bitDataException(*this);
+}
+
+
+const char* SMTPUndeclared8bitDataException::name() const throw() {
+
+	return "SMTPUndeclared8bitDataException";
 }
 
 

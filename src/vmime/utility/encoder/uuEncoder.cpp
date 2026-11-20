@@ -38,7 +38,7 @@ uuEncoder::uuEncoder() {
 }
 
 
-const std::vector <string> uuEncoder::getAvailableProperties() const {
+std::vector <string> uuEncoder::getAvailableProperties() const {
 
 	std::vector <string> list(encoder::getAvailableProperties());
 
@@ -179,8 +179,12 @@ size_t uuEncoder::decode(
 			break;
 		}
 
-		const size_t outLength = UUDECODE(lengthChar);
-		const size_t inLength = std::min((outLength * 4) / 3, static_cast <size_t>(64));
+		// A line holds at most 45 bytes of data. Clamp the decoded length so
+		// that the encoded line (4 characters per group of 3 bytes, the last
+		// group possibly being incomplete) always fits in 'inBuffer'.
+		const size_t outLength =
+			std::min(static_cast <size_t>(UUDECODE(lengthChar)), static_cast <size_t>(48));
+		const size_t inLength = ((outLength + 2) / 3) * 4;
 		size_t inPos = 0;
 
 		switch (lengthChar) {
@@ -207,12 +211,14 @@ size_t uuEncoder::decode(
 
 					inTotal += 5;
 
-					byte_t c = 0;
+					// The space we just read may already be the end of the line
+					// ("begin\n", with no mode nor filename)
+					byte_t c = inBuffer[4];
 
 					size_t count = 0;
 					byte_t buffer[512];
 
-					while (count < sizeof(buffer) - 1 && in.read(&c, 1) == 1) {
+					while (c != '\n' && count < sizeof(buffer) - 1 && in.read(&c, 1) == 1) {
 
 						if (c == '\n') {
 							break;
@@ -243,7 +249,7 @@ size_t uuEncoder::decode(
 
 						while (*p && parserHelpers::isSpace(*p)) ++p;
 
-						byte_t* modeStart = buffer;
+						byte_t* modeStart = p;
 
 						while (*p && !parserHelpers::isSpace(*p)) ++p;
 
@@ -251,7 +257,7 @@ size_t uuEncoder::decode(
 
 						while (*p && parserHelpers::isSpace(*p)) ++p;
 
-						byte_t* filenameStart = buffer;
+						byte_t* filenameStart = p;
 
 						while (*p && !(*p == '\r' || *p == '\n')) ++p;
 
@@ -289,6 +295,14 @@ size_t uuEncoder::decode(
 
 		}
 
+		// Looking for a "begin"/"end" marker above may have consumed more bytes
+		// than this line can hold: a 'b' line length means 4 encoded characters,
+		// but the "begin" probe reads 5 bytes before giving up. Stop decoding
+		// here, as 'inLength - inPos' would otherwise underflow.
+		if (inPos > inLength) {
+			break;
+		}
+
 		// Read encoded data
 		if (in.read(inBuffer + inPos, inLength - inPos) != inLength - inPos) {
 			// Premature end of data
@@ -305,7 +319,7 @@ size_t uuEncoder::decode(
 			const byte_t c3 = inBuffer[i + 2];
 			const byte_t c4 = inBuffer[i + 3];
 
-			const size_t n = std::min(inLength - i, static_cast <size_t>(3));
+			const size_t n = std::min(outLength - j, static_cast <size_t>(3));
 
 			if (n >= 3) {
 				outBuffer[j + 2] = static_cast <byte_t>(UUDECODE(c3) << 6 | UUDECODE(c4));
@@ -339,10 +353,41 @@ size_t uuEncoder::decode(
 
 size_t uuEncoder::getEncodedSize(const size_t n) const {
 
-	// 3 bytes of input provide 4 bytes of output.
-	// Count CRLF (2 bytes) for each line of 45 characters.
-	// Also reserve some space for header and footer.
-	return 200 + n * 3 + (n / 45) * 2;
+	// Same output as encode()
+	const string propFilename = getProperties().getProperty <string>("filename", "");
+	const string propMode = getProperties().getProperty <string>("mode", "644");
+
+	const size_t maxLineLength =
+		std::min(getProperties().getProperty <size_t>("maxlinelength", 46), static_cast <size_t>(46));
+
+	const size_t lineInputLength = std::max(maxLineLength, static_cast <size_t>(2)) - 1;
+
+	// Prelude text ("begin [mode] [filename]") and CRLF
+	size_t size = 5 + 2;
+
+	if (!propFilename.empty()) {
+		size += 2 + propMode.length() + propFilename.length();
+	}
+
+	// Each line has its length (1 character), the data (3 bytes of input
+	// provide 4 bytes of output) and CRLF
+	const size_t fullLineCount = n / lineInputLength;
+	const size_t lastLineInputLength = n % lineInputLength;
+
+	size += fullLineCount * (1 + ((lineInputLength + 2) / 3) * 4 + 2);
+
+	if (lastLineInputLength != 0) {
+		size += 1 + ((lastLineInputLength + 2) / 3) * 4 + 2;
+	}
+
+	// An empty line may also be output, depending on when the end of the
+	// input stream is detected
+	size += 1 + 2;
+
+	// "end" and CRLF
+	size += 3 + 2;
+
+	return size;
 }
 
 

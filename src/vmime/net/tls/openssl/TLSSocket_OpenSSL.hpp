@@ -66,6 +66,8 @@ public:
 
 	shared_ptr <security::cert::certificateChain> getPeerCertificates();
 
+	bool getChannelBindingData(const ChannelBindingType type, byteArray& data);
+
 	// Implementation of 'socket'
 	void connect(const string& address, const port_t port);
 	void disconnect();
@@ -86,8 +88,8 @@ public:
 
 	unsigned int getStatus() const;
 
-	const string getPeerName() const;
-	const string getPeerAddress() const;
+	string getPeerName() const;
+	string getPeerAddress() const;
 
 	shared_ptr <timeoutHandler> getTimeoutHandler();
 

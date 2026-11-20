@@ -24,7 +24,7 @@
 #include "vmime/config.hpp"
 
 
-#if VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#if VMIME_HAVE_MESSAGING_FEATURES
 
 
 #include "vmime/security/sasl/XOAuth2SASLMechanism.hpp"
@@ -33,6 +33,7 @@
 #include "vmime/security/sasl/SASLSession.hpp"
 
 #include "vmime/exception.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 #include <sstream>
 
@@ -47,7 +48,7 @@ XOAuth2SASLMechanism::XOAuth2SASLMechanism(
 	const string& /* name */
 )
 	: m_context(ctx),
-	  m_complete(false) {
+	  m_state(STATE_INITIAL) {
 
 }
 
@@ -57,7 +58,7 @@ XOAuth2SASLMechanism::~XOAuth2SASLMechanism() {
 }
 
 
-const string XOAuth2SASLMechanism::getName() const {
+string XOAuth2SASLMechanism::getName() const {
 
 	return "XOAUTH2";
 }
@@ -71,7 +72,26 @@ bool XOAuth2SASLMechanism::step(
 	size_t* responseLen
 ) {
 
-	// Build initial response
+	if (m_state == STATE_RESPONSE_SENT) {
+
+		// The server sends a challenge after the initial client response only if
+		// authentication failed, with an error message. The client must then send
+		// an empty response, so that the server finishes the exchange (see
+		// https://developers.google.com/workspace/gmail/imap/xoauth2-protocol).
+		*response = new byte_t[0];
+		*responseLen = 0;
+		m_state = STATE_ERROR_RECEIVED;
+
+		return false;
+
+	} else if (m_state != STATE_INITIAL) {
+
+		throw exceptions::sasl_exception("XOAUTH2: unexpected challenge from the server.");
+	}
+
+	// Build initial response: if the server sends a challenge first (when the
+	// protocol does not allow an initial response), it is ignored. It should be
+	// empty, but some servers send a prompt (eg. "XOauth2:" with Yahoo)
 	//
 	// The SASL XOAUTH2 initial client response has the following format:
 	//    base64("user=" {User} "^Aauth=Bearer " {Access Token} "^A^A")
@@ -79,7 +99,7 @@ bool XOAuth2SASLMechanism::step(
 	const std::string user(sess->getAuthenticator()->getUsername());
 	const std::string accessToken(sess->getAuthenticator()->getAccessToken());
 
-	std::ostringstream initRespBytes;
+	utility::details::classicOStringStream initRespBytes;
 	initRespBytes.write("user=", 5);
 	initRespBytes.write(user.c_str(), user.length());
 	initRespBytes.write("\x01", 1);
@@ -95,7 +115,7 @@ bool XOAuth2SASLMechanism::step(
 
 	*response = res;
 	*responseLen = initResp.length();
-	m_complete = true;
+	m_state = STATE_RESPONSE_SENT;
 
 	return true;
 }
@@ -103,12 +123,20 @@ bool XOAuth2SASLMechanism::step(
 
 bool XOAuth2SASLMechanism::isComplete() const {
 
-	return m_complete;
+	return m_state != STATE_INITIAL;
 }
 
 
 bool XOAuth2SASLMechanism::hasInitialResponse() const {
 
+	return true;
+}
+
+
+bool XOAuth2SASLMechanism::isPlaintext() const {
+
+	// Clients MUST always use TLS when making requests with bearer
+	// tokens (RFC 6750, section 5.3)
 	return true;
 }
 
@@ -152,4 +180,4 @@ void XOAuth2SASLMechanism::decode(
 } // vmime
 
 
-#endif // VMIME_HAVE_MESSAGING_FEATURES && VMIME_HAVE_SASL_SUPPORT
+#endif // VMIME_HAVE_MESSAGING_FEATURES

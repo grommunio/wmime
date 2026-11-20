@@ -32,6 +32,8 @@
 
 #include "vmime/net/message.hpp"
 #include "vmime/net/folder.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
+#include "vmime/utility/stringUtils.hpp"
 
 #include <sstream>
 #include <iterator>
@@ -50,7 +52,7 @@ static const char* IMAP_MONTH_NAMES[12] = {
 
 
 // static
-const string IMAPUtils::quoteString(const string& text) {
+string IMAPUtils::quoteString(const string& text) {
 
 	//
 	// ATOM_CHAR       ::= <any CHAR except atom_specials>
@@ -107,7 +109,7 @@ const string IMAPUtils::quoteString(const string& text) {
 
 
 // static
-const string IMAPUtils::forceQuoteString(const string& text) {
+string IMAPUtils::forceQuoteString(const string& text) {
 
 	//
 	// quoted          ::= <"> *QUOTED_CHAR <">
@@ -144,7 +146,7 @@ const string IMAPUtils::forceQuoteString(const string& text) {
 }
 
 
-const string IMAPUtils::pathToString(
+string IMAPUtils::pathToString(
 	const char hierarchySeparator,
 	const folder::path& path
 ) {
@@ -161,7 +163,7 @@ const string IMAPUtils::pathToString(
 }
 
 
-const folder::path IMAPUtils::stringToPath(
+folder::path IMAPUtils::stringToPath(
 	const char hierarchySeparator,
 	const string& str
 ) {
@@ -185,7 +187,7 @@ const folder::path IMAPUtils::stringToPath(
 }
 
 
-const string IMAPUtils::toModifiedUTF7(
+string IMAPUtils::toModifiedUTF7(
 	const char hierarchySeparator,
 	const folder::path::component& text
 ) {
@@ -336,7 +338,7 @@ const string IMAPUtils::toModifiedUTF7(
 }
 
 
-const folder::path::component IMAPUtils::fromModifiedUTF7(const string& text) {
+folder::path::component IMAPUtils::fromModifiedUTF7(const string& text) {
 
 	// Transcode from modified UTF-7 (RFC-2060).
 	string out;
@@ -495,7 +497,10 @@ void IMAPUtils::mailboxFlagsToFolderAttributes(
 		}
 	}
 
-	if (path.getSize() == 1 && path.getLastComponent().getBuffer() == "INBOX") {
+	// INBOX is case-insensitive (RFC 9051, section 5.1)
+	if (path.getSize() == 1 &&
+	    utility::stringUtils::isStringEqualNoCase(path.getLastComponent().getBuffer(), "inbox")) {
+
 		specialUse = folderAttributes::SPECIALUSE_INBOX;
 	}
 
@@ -550,7 +555,7 @@ int IMAPUtils::messageFlagsFromFlags(const IMAPParser::flag_list& list) {
 
 
 // static
-const std::vector <string> IMAPUtils::messageFlagList(const int flags) {
+std::vector <string> IMAPUtils::messageFlagList(const int flags) {
 
 	std::vector <string> flagList;
 
@@ -569,10 +574,9 @@ const std::vector <string> IMAPUtils::messageFlagList(const int flags) {
 
 
 // static
-const string IMAPUtils::searchDate(const vmime::datetime& date) {
+string IMAPUtils::searchDate(const vmime::datetime& date) {
 
-	std::ostringstream res;
-	res.imbue(std::locale::classic());
+	utility::details::classicOStringStream res;
 
 	res << date.getDay();
 	res << '-';
@@ -585,10 +589,9 @@ const string IMAPUtils::searchDate(const vmime::datetime& date) {
 
 
 // static
-const string IMAPUtils::dateTime(const vmime::datetime& date) {
+string IMAPUtils::dateTime(const vmime::datetime& date) {
 
-	std::ostringstream res;
-	res.imbue(std::locale::classic());
+	utility::details::classicOStringStream res;
 
 	// date_time ::= <"> date_day_fixed "-" date_month "-" date_year
 	//               SPACE time SPACE zone <">
@@ -764,7 +767,6 @@ public:
 	IMAPUIDMessageSetEnumerator()
 		: m_first(true) {
 
-		m_oss.imbue(std::locale::classic());
 	}
 
 	void enumerateNumberMessageRange(const vmime::net::numberMessageRange& range) {
@@ -801,14 +803,14 @@ public:
 		m_first = false;
 	}
 
-	const std::string str() const {
+	std::string str() const {
 
 		return m_oss.str();
 	}
 
 private:
 
-	std::ostringstream m_oss;
+	utility::details::classicOStringStream m_oss;
 	bool m_first;
 };
 
@@ -842,7 +844,7 @@ public:
 
 
 // static
-const string IMAPUtils::messageSetToSequenceSet(const messageSet& msgs) {
+string IMAPUtils::messageSetToSequenceSet(const messageSet& msgs) {
 
 	IMAPUIDMessageSetEnumerator en;
 	msgs.enumerate(en);

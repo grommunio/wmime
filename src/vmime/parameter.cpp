@@ -30,6 +30,7 @@
 #include "vmime/utility/outputStreamAdapter.hpp"
 #include "vmime/utility/outputStreamStringAdapter.hpp"
 #include "vmime/utility/stringUtils.hpp"
+#include "vmime/utility/details/classicOStringStream.hpp"
 
 
 namespace vmime {
@@ -101,7 +102,7 @@ const word& parameter::getValue() const {
 
 void parameter::setValue(const component& value) {
 
-	std::ostringstream oss;
+	utility::details::classicOStringStream oss;
 	utility::outputStreamAdapter vos(oss);
 
 	value.generate(vos);
@@ -126,14 +127,7 @@ void parameter::parseImpl(
 
 	m_value->setBuffer(string(buffer.begin() + position, buffer.begin() + end));
 
-	const string& value = m_value->getBuffer();
-
-	if (ctx.getInternationalizedEmailSupport() &&
-	    utility::stringUtils::findFirstNonASCIIchar(value.begin(), value.end()) != string::npos) {
-		m_value->setCharset(charset(charsets::UTF_8));
-	} else {
-		m_value->setCharset(charset(charsets::US_ASCII));
-	}
+	m_value->setCharset(word::unencodedCharset(ctx, m_value->getBuffer()));
 
 	if (newPosition) {
 		*newPosition = end;
@@ -151,8 +145,7 @@ void parameter::parse(
 	charset ch(charsets::US_ASCII);
 	string lang;
 
-	std::ostringstream value;
-	value.imbue(std::locale::classic());
+	utility::details::classicOStringStream value;
 
 	for (std::vector <valueChunk>::size_type i = 0 ; i < chunks.size() ; ++i) {
 
@@ -583,7 +576,7 @@ void parameter::generateImpl(
 
 			if (sectionCount != 1) {  // no section specifier when only a single one
 
-				const string number = std::to_string(sectionNumber);
+				const string number = utility::stringUtils::toString(sectionNumber);
 				os << '*' << number;
 				pos += 1 + number.length();
 			}
@@ -660,7 +653,7 @@ size_t parameter::getGeneratedSize(const generationContext& ctx) {
 }
 
 
-const std::vector <shared_ptr <component> > parameter::getChildComponents() {
+std::vector <shared_ptr <component> > parameter::getChildComponents() {
 
 	std::vector <shared_ptr <component> > list;
 

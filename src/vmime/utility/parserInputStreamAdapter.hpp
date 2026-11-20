@@ -131,7 +131,7 @@ public:
 		}
 	}
 
-	const string extract(const size_t begin, const size_t end) const;
+	string extract(const size_t begin, const size_t end) const;
 
 	/** Skips bytes matching a predicate from the current position.
 	  * The current position is updated to the next following byte
@@ -157,7 +157,19 @@ public:
 		return pos - initialPos;
 	}
 
-	size_t findNext(const string& token, const size_t startPosition = 0);
+	/** Finds the next occurrence of a token. The current position is not updated.
+	  *
+	  * @param token token to search for
+	  * @param startPosition position at which to start the search
+	  * @param endPosition the token must end at or before this position (or
+	  * at end of the stream, whichever comes first)
+	  * @return position of the first byte of the token, or npos if not found
+	  */
+	size_t findNext(
+		const string& token,
+		const size_t startPosition = 0,
+		const size_t endPosition = npos
+	);
 
 private:
 
